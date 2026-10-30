@@ -1,12 +1,16 @@
 //! How the wallet reaches Prime: the app implements [`PrimeLink`].
 
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use async_trait::async_trait;
-use fps_wallet::device::DeviceLink;
+use fps_wallet::device::{DeviceLink, NetworkLink};
 
 use crate::LinkError;
+
+/// How long a request to the simulator may wait for an answer, review included.
+const SIMULATOR_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// Carries requests to Prime and brings back its answers. Over QR codes the app shows the request
 /// with [`crate::request_frames`], the person scans it with Prime, approves, and the app reads
@@ -38,5 +42,53 @@ impl DeviceLink for ForeignLink {
             .exchange(request)
             .await
             .map_err(|error| error.to_string())
+    }
+}
+
+/// Where the wallet's requests go: to the app's own link, or to the app in the KeyOS simulator
+/// over the network while an address is set.
+pub(crate) struct RoutedLink {
+    app: ForeignLink,
+    simulator: Mutex<Option<String>>,
+}
+
+impl RoutedLink {
+    pub fn new(app: Arc<dyn PrimeLink>) -> Self {
+        Self {
+            app: ForeignLink(app),
+            simulator: Mutex::new(None),
+        }
+    }
+
+    pub fn set_simulator(&self, address: Option<String>) {
+        *self
+            .simulator
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = address;
+    }
+}
+
+impl fmt::Debug for RoutedLink {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("RoutedLink")
+    }
+}
+
+#[async_trait]
+impl DeviceLink for RoutedLink {
+    async fn call(&self, request: Vec<u8>) -> Result<Vec<u8>, String> {
+        let simulator = self
+            .simulator
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        match simulator {
+            Some(address) => {
+                NetworkLink::new(address, SIMULATOR_TIMEOUT)
+                    .call(request)
+                    .await
+            }
+            None => self.app.call(request).await,
+        }
     }
 }

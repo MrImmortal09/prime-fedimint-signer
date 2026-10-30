@@ -36,7 +36,7 @@ use lightning_invoice::Bolt11Invoice;
 use serde_json::Value;
 use tokio::sync::RwLock;
 
-use crate::link::ForeignLink;
+use crate::link::RoutedLink;
 use crate::store::{Store, StoredSend};
 use crate::{PrimeLink, WalletError};
 
@@ -139,6 +139,7 @@ impl Joined {
 pub struct Wallet {
     store: Store,
     device: Device,
+    link: Arc<RoutedLink>,
     joined: RwLock<Option<Joined>>,
 }
 
@@ -258,7 +259,8 @@ impl Wallet {
     #[uniffi::constructor]
     pub async fn open(dir: String, link: Arc<dyn PrimeLink>) -> Result<Arc<Self>, WalletError> {
         let store = Store::new(dir.into())?;
-        let device = Device::new(Arc::new(ForeignLink(link)));
+        let link = Arc::new(RoutedLink::new(link));
+        let device = Device::new(link.clone());
         let mut joined = None;
         if let Some(material) = store.pairing()? {
             let keys = Arc::new(DeviceKeys::new(
@@ -289,8 +291,19 @@ impl Wallet {
         Ok(Arc::new(Self {
             store,
             device,
+            link,
             joined: RwLock::new(joined),
         }))
+    }
+
+    /// Sends every request to the app in the KeyOS simulator at `address` over the network, a
+    /// host or `host:port` (port 7865 by default), instead of through the app's own link; `None`
+    /// goes back to the app's link. A stand-in for Bluetooth while there is no device.
+    pub fn set_simulator_address(&self, address: Option<String>) {
+        let address = address
+            .map(|address| address.trim().to_owned())
+            .filter(|address| !address.is_empty());
+        self.link.set_simulator(address);
     }
 
     /// The federation the wallet belongs to, if it joined one.

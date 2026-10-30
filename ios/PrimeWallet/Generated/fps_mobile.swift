@@ -1081,6 +1081,13 @@ public protocol WalletProtocol: AnyObject, Sendable {
     func sendEcash(amountMsat: UInt64, showOnPrime: Bool) async throws  -> EcashSend
     
     /**
+     * Sends every request to the app in the KeyOS simulator at `address` over the network, a
+     * host or `host:port` (port 7865 by default), instead of through the app's own link; `None`
+     * goes back to the app's link. A stand-in for Bluetooth while there is no device.
+     */
+    func setSimulatorAddress(address: String?) 
+    
+    /**
      * Sends `amount_sat` to `address` on chain. Prime reviews and signs. Returns the bitcoin
      * transaction id.
      */
@@ -1439,6 +1446,20 @@ open func sendEcash(amountMsat: UInt64, showOnPrime: Bool)async throws  -> Ecash
             liftFunc: FfiConverterTypeEcashSend_lift,
             errorHandler: FfiConverterTypeWalletError_lift
         )
+}
+    
+    /**
+     * Sends every request to the app in the KeyOS simulator at `address` over the network, a
+     * host or `host:port` (port 7865 by default), instead of through the app's own link; `None`
+     * goes back to the app's link. A stand-in for Bluetooth while there is no device.
+     */
+open func setSimulatorAddress(address: String?)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_fps_mobile_fn_method_wallet_set_simulator_address(
+            self.uniffiCloneHandle(),
+        FfiConverterOptionString.lower(address),uniffiCallStatus
+    )
+}
 }
     
     /**
@@ -2662,6 +2683,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_fps_mobile_checksum_method_wallet_send_ecash() != 6211) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_fps_mobile_checksum_method_wallet_set_simulator_address() != 36811) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_fps_mobile_checksum_method_wallet_withdraw() != 13864) {

@@ -6,10 +6,13 @@
 //!
 //! - animated QR: the user scans a request with the system scanner (or opens the app from the
 //!   Launcher's scanner) and the phone scans the answer from the screen;
-//! - the simulator file bridge (`bridge.rs`), for development and automated tests.
+//! - the simulator file bridge (`bridge.rs`), for development and automated tests;
+//! - the simulator network link (`netlink.rs`), a TCP stand-in for QuantumLink: a phone on the
+//!   same network sends requests and gets the answers back on the same connection.
 
 mod bridge;
 mod device;
+mod netlink;
 mod qr;
 mod theme;
 mod view;
@@ -42,6 +45,8 @@ app_ui2!("Fedimint Signer");
 pub enum Channel {
     Qr,
     Bridge,
+    /// The simulator network link; the answer goes back on the request's connection.
+    Net,
 }
 
 /// A result screen: a message, and optionally a QR code to show.
@@ -64,6 +69,10 @@ pub struct App {
     pub screens: VecDeque<Screen>,
     /// Polls the simulator file bridge while it lives; `None` on the device.
     pub bridge: Option<Timer>,
+    /// Polls the simulator network link while it lives; `None` on the device.
+    pub net: Option<Timer>,
+    /// The network connection whose request is being handled, waiting for its answer.
+    pub net_pending: Option<netlink::Pending>,
 }
 
 impl App {
@@ -152,6 +161,7 @@ fn deliver(
         }),
         // The answer goes straight back, as it will over Bluetooth.
         Channel::Bridge => bridge::write_reply(&reply),
+        Channel::Net => netlink::write_reply(app.borrow_mut().net_pending.take(), &reply),
     }
     view::refresh_home(ui, &app.borrow().signer);
     if let Some(decided) = decided {
@@ -385,11 +395,15 @@ fn open(ui: &AppWindow) -> Option<Rc<RefCell<App>>> {
         showing_result: false,
         screens: VecDeque::new(),
         bridge: None,
+        net: None,
+        net_pending: None,
     }));
     view::refresh_home(ui, &app.borrow().signer);
     view::load_settings(ui, app.borrow().signer.policy());
     let bridge = bridge::start(ui.as_weak(), app.clone());
     app.borrow_mut().bridge = bridge;
+    let net = netlink::start(ui.as_weak(), app.clone());
+    app.borrow_mut().net = net;
     log::info!("signer open");
     Some(app)
 }

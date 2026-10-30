@@ -738,6 +738,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_fps_mobile_checksum_method_wallet_send_ecash(
     ): Int
+    external fun uniffi_fps_mobile_checksum_method_wallet_set_simulator_address(
+    ): Int
     external fun uniffi_fps_mobile_checksum_method_wallet_withdraw(
     ): Int
     external fun uniffi_fps_mobile_checksum_constructor_answerscanner_new(
@@ -815,6 +817,8 @@ internal object UniffiLib {
     ): Long
     external fun uniffi_fps_mobile_fn_method_wallet_send_ecash(`ptr`: Long,`amountMsat`: Long,`showOnPrime`: Byte,
     ): Long
+    external fun uniffi_fps_mobile_fn_method_wallet_set_simulator_address(`ptr`: Long,`address`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_fps_mobile_fn_method_wallet_withdraw(`ptr`: Long,`address`: RustBuffer.ByValue,`amountSat`: Long,
     ): Long
     external fun uniffi_fps_mobile_fn_func_request_frames(`request`: RustBuffer.ByValue,`density`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -987,6 +991,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_fps_mobile_checksum_method_wallet_send_ecash() and 0xFFFF) != 6211) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_fps_mobile_checksum_method_wallet_set_simulator_address() and 0xFFFF) != 36811) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_fps_mobile_checksum_method_wallet_withdraw() and 0xFFFF) != 13864) {
@@ -2309,6 +2316,13 @@ public interface WalletInterface {
     suspend fun `sendEcash`(`amountMsat`: kotlin.ULong, `showOnPrime`: kotlin.Boolean): EcashSend
     
     /**
+     * Sends every request to the app in the KeyOS simulator at `address` over the network, a
+     * host or `host:port` (port 7865 by default), instead of through the app's own link; `None`
+     * goes back to the app's link. A stand-in for Bluetooth while there is no device.
+     */
+    fun `setSimulatorAddress`(`address`: kotlin.String?)
+    
+    /**
      * Sends `amount_sat` to `address` on chain. Prime reviews and signs. Returns the bitcoin
      * transaction id.
      */
@@ -2781,6 +2795,24 @@ open class Wallet: Disposable, AutoCloseable, WalletInterface
         WalletException.ErrorHandler,
     )
     }
+
+    
+    /**
+     * Sends every request to the app in the KeyOS simulator at `address` over the network, a
+     * host or `host:port` (port 7865 by default), instead of through the app's own link; `None`
+     * goes back to the app's link. A stand-in for Bluetooth while there is no device.
+     */override fun `setSimulatorAddress`(`address`: kotlin.String?)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_fps_mobile_fn_method_wallet_set_simulator_address(
+        it,
+        
+        FfiConverterOptionalString.lower(`address`),_status)
+}
+    }
+    
+    
 
     
     /**

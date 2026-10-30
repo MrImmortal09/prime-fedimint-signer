@@ -6,6 +6,10 @@
 //! - [`ur`]: animated QR codes. Each envelope travels as one multi-part Uniform Resource of type
 //!   `fps-request` or `fps-response`.
 //! - [`bridge`]: the simulator file bridge, a host directory shared with the KeyOS simulator.
+//! - [`net`]: the simulator network link, a TCP stand-in for QuantumLink while there is no device.
+//!   Simulator builds only.
 
 pub mod bridge;
+#[cfg(not(target_os = "xous"))]
+pub mod net;
 pub mod ur;
