@@ -6,13 +6,26 @@ import SwiftUI
 struct PrimeExchangeView: View {
     let exchange: PendingExchange
     @EnvironmentObject private var bridge: PrimeBridge
+    /// How much each code carries: "low", "medium" or "high". Denser codes mean fewer parts.
+    @AppStorage("qrDensity") private var densityName = "medium"
+    @State private var frames: [String] = []
     @State private var frame = 0
     @State private var scanning = false
     @State private var paused = false
     @State private var progress = 0.0
     @State private var problem: String?
     @State private var scanner = AnswerScanner()
+    /// The camera keeps reporting codes while the screen closes; the answer is taken once.
+    @State private var done = false
     private let ticker = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
+
+    private var density: QrDensity {
+        switch densityName {
+        case "low": return .low
+        case "high": return .high
+        default: return .medium
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -34,24 +47,45 @@ struct PrimeExchangeView: View {
                 }
             }
         }
+        .onAppear { reframe() }
+        .onChange(of: densityName) { _ in reframe() }
         .onReceive(ticker) { _ in
             if !scanning && !paused { frame += 1 }
         }
     }
 
+    private func reframe() {
+        frames = requestFrames(request: exchange.request, density: density)
+        frame = 0
+    }
+
     @ViewBuilder private var request: some View {
         Text("Review on your Passport").font(.largeTitle.bold()).frame(maxWidth: .infinity, alignment: .leading)
-        QRCodeView(text: exchange.frames[frame % exchange.frames.count])
-            .padding(16).background(.white, in: RoundedRectangle(cornerRadius: 20))
-            .frame(maxWidth: 340)
-            .accessibilityLabel("Animated authorization request for Passport Prime")
-        Text(exchange.frames.count > 1 ? "Part \(frame % exchange.frames.count + 1) of \(exchange.frames.count)" : " ")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        if exchange.frames.count > 1 {
-            Button(paused ? "Resume QR animation" : "Pause QR animation") { paused.toggle() }
-                .font(.subheadline).frame(minHeight: 44)
+        if frames.isEmpty {
+            ProgressView()
+        } else {
+            QRCodeView(text: frames[frame % frames.count])
+                .padding(16).background(.white, in: RoundedRectangle(cornerRadius: 20))
+                .frame(maxWidth: 340)
+                .accessibilityLabel("Animated authorization request for Passport Prime")
+            Text(frames.count > 1 ? "Part \(frame % frames.count + 1) of \(frames.count)" : " ")
+                .font(.caption)
+                .foregroundStyle(WalletStyle.muted)
+            if frames.count > 1 {
+                Button(paused ? "Resume QR animation" : "Pause QR animation") { paused.toggle() }
+                    .font(.subheadline).frame(minHeight: 44)
+            }
         }
+        Picker("Code size", selection: $densityName) {
+            Text("Small").tag("low")
+            Text("Medium").tag("medium")
+            Text("Large").tag("high")
+        }
+        .pickerStyle(.segmented)
+        Text("Larger codes mean fewer parts. Choose smaller ones if Prime cannot read them.")
+            .font(.caption)
+            .foregroundStyle(WalletStyle.muted)
+            .multilineTextAlignment(.center)
         Text("On Prime, open Fedimint and tap Scan Request. Check the amount, destination, fees, and warnings. Slide to approve only if everything matches.")
             .multilineTextAlignment(.center)
             .font(.callout)
@@ -82,11 +116,14 @@ struct PrimeExchangeView: View {
     }
 
     private func take(_ code: String) {
+        guard !done else { return }
         switch scanner.receive(code: code) {
         case .partial(let progress):
             self.progress = progress
             problem = nil
         case .complete(let answer):
+            done = true
+            progress = 1
             bridge.answer(answer)
         case .rejected(let reason):
             problem = reason

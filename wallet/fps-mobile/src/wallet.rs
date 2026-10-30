@@ -333,6 +333,23 @@ impl Wallet {
         Ok(summary(&config))
     }
 
+    /// Leaves the federation: the phone forgets the pairing, the client's database and its record
+    /// of ecash sent. Prime keeps the federation and its keys, so joining it again and pairing
+    /// recovers the balance from the federation.
+    pub async fn leave(&self) -> Result<(), WalletError> {
+        let mut joined = self.joined.write().await;
+        let Some(left) = joined.take() else {
+            return Err(WalletError::NotJoined);
+        };
+        drop(left);
+        self.store.forget_pairing()?;
+        self.store.remove_database()?;
+        for send in self.store.sends()? {
+            self.store.remove_send(&send.id)?;
+        }
+        Ok(())
+    }
+
     /// The spendable balance, in millisatoshis.
     pub async fn balance_msat(&self) -> Result<u64, WalletError> {
         let joined = self.joined().await?;

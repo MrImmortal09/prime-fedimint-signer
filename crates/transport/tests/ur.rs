@@ -172,3 +172,21 @@ fn a_scanned_request_is_checked() {
         })
     );
 }
+
+#[test]
+fn denser_parts_make_fewer_codes() {
+    let bytes = message(5_000);
+    let small = encode_parts(UR_TYPE_REQUEST, &bytes);
+    let large = fps_transport::ur::encode_with(UR_TYPE_REQUEST, &bytes, 700);
+    assert!(
+        large.len() * 2 < small.len(),
+        "{} parts at 700 characters, {} at {MAX_PART_CHARS}",
+        large.len(),
+        small.len()
+    );
+    for part in &large {
+        assert!(part.len() <= 700, "{} characters", part.len());
+    }
+    assert_eq!(reassemble(UR_TYPE_REQUEST, &large), bytes);
+    assert_eq!(reassemble(UR_TYPE_REQUEST, large.iter().rev()), bytes);
+}

@@ -128,6 +128,10 @@ pub enum ServiceError {
     Storage(String),
     /// The stored state could not be read.
     Corrupt(String),
+    /// A request is waiting for approval, so the federations cannot change.
+    Busy,
+    /// No federation with that id is imported.
+    NoSuchFederation,
 }
 
 impl std::fmt::Display for ServiceError {
@@ -137,6 +141,8 @@ impl std::fmt::Display for ServiceError {
             Self::PinRequired => f.write_str("this approval needs the PIN"),
             Self::Storage(error) => write!(f, "storage failed: {error}"),
             Self::Corrupt(error) => write!(f, "stored state is unreadable: {error}"),
+            Self::Busy => f.write_str("a request is waiting for approval"),
+            Self::NoSuchFederation => f.write_str("this federation is not imported"),
         }
     }
 }
@@ -236,6 +242,26 @@ impl<S: Storage, P: Platform> Signer<S, P> {
 
     pub fn federations(&self) -> Vec<FederationSummary> {
         self.loaded.iter().map(|l| l.federation.summary()).collect()
+    }
+
+    /// Forgets an imported federation: the device stops answering for it until it is imported
+    /// again. The record of notes released and contracts funded for it stays, so importing it
+    /// again cannot release a note twice. Refused while a request waits for approval.
+    pub fn forget_federation(&mut self, federation: &FederationId) -> Result<(), ServiceError> {
+        if self.pending.is_some() {
+            return Err(ServiceError::Busy);
+        }
+        let mut next = self.state.clone();
+        let before = next.federations.len();
+        next.federations
+            .retain(|descriptor| descriptor.federation != *federation);
+        if next.federations.len() == before {
+            return Err(ServiceError::NoSuchFederation);
+        }
+        let loaded = self.load_federations(&next)?;
+        self.commit(next)?;
+        self.loaded = loaded;
+        Ok(())
     }
 
     /// The request waiting for approval, if any.

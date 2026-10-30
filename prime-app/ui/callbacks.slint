@@ -39,6 +39,8 @@ export global Callbacks {
     in-out property <bool> result-secret;
     in-out property <bool> result-has-next;
     callback next();
+    // Leaves the result and opens the scanner for the phone's next request
+    callback scan-next();
 
     // Settings
     in-out property <bool> setting-pin;
@@ -46,4 +48,7 @@ export global Callbacks {
     in-out property <bool> setting-auto-release;
     in-out property <string> setting-summary;
     callback settings-changed();
+    // Forgetting a federation takes two taps: the index armed by the first, or -1
+    in-out property <int> forget-armed: -1;
+    callback forget-federation(int);
 }

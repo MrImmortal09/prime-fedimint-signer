@@ -1037,6 +1037,13 @@ public protocol WalletProtocol: AnyObject, Sendable {
     func join(inviteCode: String) async throws  -> FederationSummary
     
     /**
+     * Leaves the federation: the phone forgets the pairing, the client's database and its record
+     * of ecash sent. Prime keeps the federation and its keys, so joining it again and pairing
+     * recovers the balance from the federation.
+     */
+    func leave() async throws 
+    
+    /**
      * Pays a BOLT11 invoice. Prime reviews the invoice and signs; if the gateway gives up,
      * Prime signs the refund too. `gateway` picks the Lightning gateway; otherwise the
      * federation's are used.
@@ -1288,6 +1295,27 @@ open func join(inviteCode: String)async throws  -> FederationSummary  {
             completeFunc: ffi_fps_mobile_rust_future_complete_rust_buffer,
             freeFunc: ffi_fps_mobile_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeFederationSummary_lift,
+            errorHandler: FfiConverterTypeWalletError_lift
+        )
+}
+    
+    /**
+     * Leaves the federation: the phone forgets the pairing, the client's database and its record
+     * of ecash sent. Prime keeps the federation and its keys, so joining it again and pairing
+     * recovers the balance from the federation.
+     */
+open func leave()async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_fps_mobile_fn_method_wallet_leave(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_fps_mobile_rust_future_poll_void,
+            completeFunc: ffi_fps_mobile_rust_future_complete_void,
+            freeFunc: ffi_fps_mobile_rust_future_free_void,
+            liftFunc: { $0 },
             errorHandler: FfiConverterTypeWalletError_lift
         )
 }
@@ -2001,6 +2029,84 @@ public func FfiConverterTypePayment_lower(_ value: Payment) -> RustBuffer {
 
 
 /**
+ * How much each QR code shown to Prime carries. Denser codes mean fewer parts, and smaller
+ * modules for Prime's camera to read. Low is the size of Prime's own codes and of the codes
+ * Envoy shows Passport by default; Medium is the largest Envoy offers; High goes beyond that.
+ */
+
+public enum QrDensity: Equatable, Hashable {
+    
+    case low
+    case medium
+    case high
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension QrDensity: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeQrDensity: FfiConverterRustBuffer {
+    typealias SwiftType = QrDensity
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> QrDensity {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .low
+        
+        case 2: return .medium
+        
+        case 3: return .high
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: QrDensity, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .low:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .medium:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .high:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeQrDensity_lift(_ buf: RustBuffer) throws -> QrDensity {
+    return try FfiConverterTypeQrDensity.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeQrDensity_lower(_ value: QrDensity) -> RustBuffer {
+    return FfiConverterTypeQrDensity.lower(value)
+}
+
+
+
+/**
  * Where reading Prime's answer stands after one more code.
  */
 
@@ -2482,11 +2588,12 @@ public func uniffiForeignFutureHandleCountFpsMobile() -> Int {
  * The QR codes that carry `request` to Prime, to show one after another in a loop. Prime's
  * scanner collects them in any order.
  */
-public func requestFrames(request: Data) -> [String]  {
+public func requestFrames(request: Data, density: QrDensity) -> [String]  {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_fps_mobile_fn_func_request_frames(
-        FfiConverterData.lower(request),uniffiCallStatus
+        FfiConverterData.lower(request),
+        FfiConverterTypeQrDensity_lower(density),uniffiCallStatus
     )
 })
 }
@@ -2506,7 +2613,7 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_fps_mobile_checksum_func_request_frames() != 36879) {
+    if (uniffi_fps_mobile_checksum_func_request_frames() != 34970) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_fps_mobile_checksum_method_primelink_exchange() != 64644) {
@@ -2534,6 +2641,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_fps_mobile_checksum_method_wallet_join() != 46458) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_fps_mobile_checksum_method_wallet_leave() != 29572) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_fps_mobile_checksum_method_wallet_pay_invoice() != 22682) {

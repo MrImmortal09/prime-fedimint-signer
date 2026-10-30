@@ -61,6 +61,22 @@ final class WalletModel: ObservableObject {
         }
     }
 
+    /// Leaves the federation. Prime keeps it, so joining again recovers the balance.
+    func leave() async {
+        guard let wallet else { return }
+        busy = "Leaving the federation"
+        defer { busy = nil }
+        do {
+            try await wallet.leave()
+            federation = nil
+            balanceMsat = 0
+            activity = []
+            pendingSends = []
+        } catch {
+            self.error = error.shown
+        }
+    }
+
     func join(_ inviteCode: String) async {
         let summary = await run("Joining the federation and pairing it with Prime") {
             try await $0.join(inviteCode: inviteCode)

@@ -841,3 +841,52 @@ fn outgoing_nonces_come_from_the_hardened_branch_without_approval() {
         RejectCode::TooLarge
     );
 }
+
+#[test]
+fn a_forgotten_federation_is_unknown_until_imported_again() {
+    let scenario = scenario();
+    let (mut signer, storage) = imported(&scenario);
+    let federation = scenario.descriptor.federation;
+
+    // Nothing changes while a request waits for approval.
+    let Outcome::NeedsApproval(_) = send(
+        &mut signer,
+        id(2),
+        Request::ExportViewMaterial { federation },
+    ) else {
+        panic!("the export must ask");
+    };
+    assert_eq!(
+        signer.forget_federation(&federation),
+        Err(fps_signer::ServiceError::Busy)
+    );
+    signer.reject(&id(2)).unwrap();
+
+    signer.forget_federation(&federation).unwrap();
+    assert!(signer.federations().is_empty());
+    assert_eq!(
+        signer.forget_federation(&federation),
+        Err(fps_signer::ServiceError::NoSuchFederation)
+    );
+    assert_eq!(
+        rejection(send(
+            &mut signer,
+            id(3),
+            Request::ExportViewMaterial { federation }
+        )),
+        RejectCode::UnknownFederation
+    );
+
+    // Forgetting is stored: a reopened device knows no federation either, and importing the same
+    // one asks again, as for a new federation.
+    let mut reopened = open(storage, scenario.app_seed);
+    assert!(reopened.federations().is_empty());
+    let Outcome::NeedsApproval(approval) = send(
+        &mut reopened,
+        id(4),
+        Request::ImportFederation(scenario.descriptor.clone()),
+    ) else {
+        panic!("the import must ask again");
+    };
+    assert_eq!(approval.review.title, "Add federation");
+}

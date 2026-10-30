@@ -724,6 +724,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_fps_mobile_checksum_method_wallet_join(
     ): Int
+    external fun uniffi_fps_mobile_checksum_method_wallet_leave(
+    ): Int
     external fun uniffi_fps_mobile_checksum_method_wallet_pay_invoice(
     ): Int
     external fun uniffi_fps_mobile_checksum_method_wallet_pending_sends(
@@ -799,6 +801,8 @@ internal object UniffiLib {
     ): Long
     external fun uniffi_fps_mobile_fn_method_wallet_join(`ptr`: Long,`inviteCode`: RustBuffer.ByValue,
     ): Long
+    external fun uniffi_fps_mobile_fn_method_wallet_leave(`ptr`: Long,
+    ): Long
     external fun uniffi_fps_mobile_fn_method_wallet_pay_invoice(`ptr`: Long,`invoice`: RustBuffer.ByValue,`gateway`: RustBuffer.ByValue,
     ): Long
     external fun uniffi_fps_mobile_fn_method_wallet_pending_sends(`ptr`: Long,
@@ -813,7 +817,7 @@ internal object UniffiLib {
     ): Long
     external fun uniffi_fps_mobile_fn_method_wallet_withdraw(`ptr`: Long,`address`: RustBuffer.ByValue,`amountSat`: Long,
     ): Long
-    external fun uniffi_fps_mobile_fn_func_request_frames(`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_fps_mobile_fn_func_request_frames(`request`: RustBuffer.ByValue,`density`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun ffi_fps_mobile_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -934,7 +938,7 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 }
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
-    if ((lib.uniffi_fps_mobile_checksum_func_request_frames() and 0xFFFF) != 36879) {
+    if ((lib.uniffi_fps_mobile_checksum_func_request_frames() and 0xFFFF) != 34970) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_fps_mobile_checksum_method_primelink_exchange() and 0xFFFF) != 64644) {
@@ -962,6 +966,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_fps_mobile_checksum_method_wallet_join() and 0xFFFF) != 46458) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_fps_mobile_checksum_method_wallet_leave() and 0xFFFF) != 29572) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_fps_mobile_checksum_method_wallet_pay_invoice() and 0xFFFF) != 22682) {
@@ -2258,6 +2265,13 @@ public interface WalletInterface {
     suspend fun `join`(`inviteCode`: kotlin.String): FederationSummary
     
     /**
+     * Leaves the federation: the phone forgets the pairing, the client's database and its record
+     * of ecash sent. Prime keeps the federation and its keys, so joining it again and pairing
+     * recovers the balance from the federation.
+     */
+    suspend fun `leave`()
+    
+    /**
      * Pays a BOLT11 invoice. Prime reviews the invoice and signs; if the gateway gives up,
      * Prime signs the refund too. `gateway` picks the Lightning gateway; otherwise the
      * federation's are used.
@@ -2576,6 +2590,33 @@ open class Wallet: Disposable, AutoCloseable, WalletInterface
         { future -> UniffiLib.ffi_fps_mobile_rust_future_free_rust_buffer(future) },
         // lift function
         { FfiConverterTypeFederationSummary.lift(it) },
+        // Error FFI converter
+        WalletException.ErrorHandler,
+    )
+    }
+
+    
+    /**
+     * Leaves the federation: the phone forgets the pairing, the client's database and its record
+     * of ecash sent. Prime keeps the federation and its keys, so joining it again and pairing
+     * recovers the balance from the federation.
+     */
+    @Throws(WalletException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `leave`() {
+        return uniffiRustCallAsync(
+        callWithHandle { uniffiHandle ->
+            UniffiLib.uniffi_fps_mobile_fn_method_wallet_leave(
+                uniffiHandle,
+                
+            )
+        },
+        { future, callback, continuation -> UniffiLib.ffi_fps_mobile_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.ffi_fps_mobile_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.ffi_fps_mobile_rust_future_free_void(future) },
+        // lift function
+        { },
+        
         // Error FFI converter
         WalletException.ErrorHandler,
     )
@@ -3253,6 +3294,46 @@ public object FfiConverterTypePayment : FfiConverterRustBuffer<Payment>{
 
 
 /**
+ * How much each QR code shown to Prime carries. Denser codes mean fewer parts, and smaller
+ * modules for Prime's camera to read. Low is the size of Prime's own codes and of the codes
+ * Envoy shows Passport by default; Medium is the largest Envoy offers; High goes beyond that.
+ */
+
+enum class QrDensity {
+    
+    LOW,
+    MEDIUM,
+    HIGH;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeQrDensity: FfiConverterRustBuffer<QrDensity> {
+    override fun read(buf: ByteBuffer) = try {
+        QrDensity.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: QrDensity) = 4UL
+
+    override fun write(value: QrDensity, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+/**
  * Where reading Prime's answer stands after one more code.
  */
 sealed class Scan {
@@ -3615,13 +3696,14 @@ public object FfiConverterSequenceTypePendingSend: FfiConverterRustBuffer<List<P
         /**
          * The QR codes that carry `request` to Prime, to show one after another in a loop. Prime's
          * scanner collects them in any order.
-         */ fun `requestFrames`(`request`: kotlin.ByteArray): List<kotlin.String> {
+         */ fun `requestFrames`(`request`: kotlin.ByteArray, `density`: QrDensity): List<kotlin.String> {
             return FfiConverterSequenceString.lift(
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_fps_mobile_fn_func_request_frames(
     
         
-        FfiConverterByteArray.lower(`request`),_status)
+        FfiConverterByteArray.lower(`request`),
+        FfiConverterTypeQrDensity.lower(`density`),_status)
 }
     )
     }

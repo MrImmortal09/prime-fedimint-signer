@@ -6,20 +6,24 @@
 mod common;
 
 use common::{
-    CheckingGateway, Decision, INVOICE_PREIMAGE, fixtures, fund, gateway, paired_wallet,
-    payable_invoice, peg_in, received_on_chain, recovering_client, settled_balance,
+    CheckingGateway, Decision, INVOICE_PREIMAGE, client_config, fixtures, fund, gateway,
+    paired_wallet, payable_invoice, peg_in, received_on_chain, recovering_client, settled_balance,
     unpayable_invoice,
 };
 use fedimint_client_module::error::TransactionSubmitError;
 use fedimint_client_module::transaction::TransactionSignerError;
 use fedimint_core::Amount;
 use fedimint_core::base32::{self, FEDIMINT_PREFIX};
+use fedimint_core::config::ClientConfig;
+use fedimint_core::encoding::{Decodable as _, DynRawFallback, Encodable as _};
+use fedimint_core::module::registry::ModuleDecoderRegistry;
 use fedimint_lnv2_client::{FinalSendOperationState, LightningClientModule};
 use fedimint_mintv2_client::{
     ECash, ExternalNotesError, FinalReceiveOperationState, MintClientModule, SendECashError,
 };
 use fedimint_walletv2_client::WalletClientModule;
 use fps_protocol::Delivery;
+use fps_wallet::descriptor::federation_descriptor;
 use fps_wallet::send::SendError;
 use serde_json::Value;
 
@@ -264,5 +268,37 @@ async fn a_new_phone_recovers_the_wallet_from_the_view_material() -> anyhow::Res
     let recovered = recovering_client(config, &keys, &gateway_conn).await;
     recovered.wait_for_all_recoveries().await?;
     assert_eq!(settled_balance(&recovered).await, balance);
+    Ok(())
+}
+
+/// A config downloaded with an invite code arrives with every module's part still raw, and the
+/// phone pairs with Prime before the client decodes it.
+#[tokio::test(flavor = "multi_thread")]
+async fn pairing_reads_the_config_as_the_federation_serves_it() -> anyhow::Result<()> {
+    let gateway_conn = CheckingGateway::new();
+    let fed = fixtures(gateway_conn.clone()).new_fed_not_degraded().await;
+    let decoded = client_config(&fed).await;
+    let raw = ClientConfig::consensus_decode_whole(
+        &decoded.consensus_encode_to_vec(),
+        &ModuleDecoderRegistry::default().with_fallback(),
+    )?;
+    assert!(
+        raw.modules
+            .values()
+            .all(|module| matches!(module.config, DynRawFallback::Raw { .. })),
+        "every module part starts out raw"
+    );
+
+    let descriptor = federation_descriptor(&raw).map_err(anyhow::Error::msg)?;
+    assert_eq!(
+        descriptor,
+        federation_descriptor(&decoded).map_err(anyhow::Error::msg)?
+    );
+    assert!(
+        descriptor.mint.is_some(),
+        "the mint is read from the raw config"
+    );
+    assert!(descriptor.lightning.is_some(), "the Lightning module too");
+    assert!(descriptor.wallet.is_some(), "and the wallet module");
     Ok(())
 }

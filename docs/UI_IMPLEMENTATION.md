@@ -76,3 +76,9 @@ The full phone-wallet/federation integration script and the physical camera requ
 - https://docs.foundation.xyz/
 
 Actual Spark, Liana, and Cake screenshots were downloaded from the showcase for visual reference and inspected. Local SDK 1.1.0 CLI, migration, theme, and native control sources guided implementation.
+
+## Integration with current upstream
+
+Integrated upstream `78b6360` while preparing the pull request against the original repository. Preserved its AVFoundation animated scanner, QR density selection, single-answer guard, federation leave/forget actions, raw-config pairing changes, and scan-next navigation. Conflict resolutions combine these behaviors with the redesigned screens.
+
+After integration: all **130 Rust workspace tests passed**; authored Swift syntax parsing, Slint compilation, and the PR diff whitespace check passed. Rendered the updated result screen with the extra scan action and settings with a long federation name; both fit the 480 × 800 layout. The 19 + 4 simulator checks documented above predate this integration and were not repeated on the merged revision. iOS runtime and the separate wallet integration suite remain outstanding.
