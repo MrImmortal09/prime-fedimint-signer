@@ -474,6 +474,7 @@
         "released": [],
         "funded": [],
         "issued": [],
+        "gateway_auth_message": "4c628f5bc57ea12d6f91cc32d0a0507cabaff97986f15739cfd26caa5c041047",
         "inputs_msat": 134217728,
         "outputs_msat": 134188096,
         "module_fees_msat": 29133,

@@ -410,3 +410,46 @@ fn scenario_transactions_analyse_and_sign_as_fedimint_built_them() {
         );
     }
 }
+
+#[test]
+fn the_gateway_authorisation_signs_fedimints_invoice_hash() {
+    let vectors = vectors();
+    let scenario = &vectors["scenario"];
+    let case = cases(scenario, "transactions")
+        .iter()
+        .find(|case| case["name"] == "pay_invoice")
+        .unwrap();
+    let request: SignRequest = ciborium::from_reader(bytes(&case["request"]).as_slice()).unwrap();
+    let fps_protocol::Intent::PayInvoice { invoice } = request.intent.clone() else {
+        panic!("the pay_invoice case pays an invoice");
+    };
+    let details = fps_signer_core::invoice::parse_invoice(&invoice).unwrap();
+    assert_eq!(
+        details.gateway_auth_message(),
+        array::<32>(&case["gateway_auth_message"])
+    );
+
+    // The device signs it with the refund key of the contract it approved.
+    let app_seed: [u8; 32] = array(&scenario["app_seed"]);
+    let descriptor: FederationDescriptor =
+        ciborium::from_reader(bytes(&scenario["descriptor"]).as_slice()).unwrap();
+    let federation = Federation::from_descriptor(&descriptor).unwrap();
+    let keys = FederationKeys::derive(&app_seed, &federation.id).unwrap();
+    let analysis = analyze(
+        &federation,
+        &keys,
+        &request,
+        &fps_signer_core::EmptyLedger,
+        &AnalysisOptions::default(),
+    )
+    .unwrap();
+    let payment = analysis.lightning.as_ref().unwrap();
+    let auth = fps_signer_core::gateway_auth(&keys, payment, [7; 32]).unwrap();
+    Secp256k1::verification_only()
+        .verify_schnorr(
+            &schnorr::Signature::from_slice(&auth).unwrap(),
+            &Message::from_digest(details.gateway_auth_message()),
+            &payment.contract.refund_pk.x_only_public_key().0,
+        )
+        .expect("the authorisation verifies against the contract's refund key");
+}

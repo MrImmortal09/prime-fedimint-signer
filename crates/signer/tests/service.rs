@@ -500,6 +500,51 @@ fn prepared_notes_release_without_a_second_review_exactly_once() {
 }
 
 #[test]
+fn a_signed_payment_carries_the_gateway_authorisation() {
+    let scenario = scenario();
+    let (mut signer, _) = imported(&scenario);
+    let request = scenario.request("pay_invoice");
+    let Intent::PayInvoice { invoice } = request.intent.clone() else {
+        panic!("the pay_invoice case pays an invoice");
+    };
+    let answer = approved(&mut signer, id(80), Request::SignTransaction(request));
+    let Response::Signed(signed) = answer.body else {
+        panic!("expected signatures");
+    };
+    let auth = signed
+        .gateway_auth
+        .expect("a payment is authorised for the gateway");
+
+    let contract = signer.state().contracts[0].contract.0.clone();
+    let contract = <fps_signer_core::fedimint::lnv2::OutgoingContract as fps_signer_core::encoding::Decode>::decode_exact(
+        &contract,
+        "contract",
+    )
+    .unwrap();
+    let message = fps_signer_core::invoice::parse_invoice(&invoice)
+        .unwrap()
+        .gateway_auth_message();
+    bitcoin::secp256k1::Secp256k1::verification_only()
+        .verify_schnorr(
+            &bitcoin::secp256k1::schnorr::Signature::from_slice(&auth.0).unwrap(),
+            &bitcoin::secp256k1::Message::from_digest(message),
+            &contract.refund_pk.x_only_public_key().0,
+        )
+        .expect("the authorisation verifies against the contract's refund key");
+
+    // Nothing else carries one.
+    let answer = approved(
+        &mut signer,
+        id(81),
+        Request::SignTransaction(scenario.request("reissue")),
+    );
+    let Response::Signed(signed) = answer.body else {
+        panic!("expected signatures");
+    };
+    assert_eq!(signed.gateway_auth, None);
+}
+
+#[test]
 fn prepared_notes_release_with_their_real_mint_signatures() {
     let scenario = scenario();
     let (mut signer, _) = imported(&scenario);

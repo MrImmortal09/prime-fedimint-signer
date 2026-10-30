@@ -37,3 +37,22 @@ jobs:
           git diff --exit-code crates/signer-core/tests/vectors
       - name: Device code cross-checked against fedimint
         run: cargo test --release --manifest-path devtools/Cargo.toml
+
+  # The phone side, against fedimint with the patch series applied. fedimint's test fixtures run a
+  # whole federation in the test process, and its LND client needs protoc to build.
+  wallet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: wallet
+      - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev cmake protobuf-compiler
+      - name: fedimint with the patch series
+        run: scripts/fedimint-checkout.sh
+      - run: cargo fmt --manifest-path wallet/Cargo.toml -p fps-wallet --check
+      - name: The watch-only client against an in-process federation
+        run: cargo test --manifest-path wallet/Cargo.toml

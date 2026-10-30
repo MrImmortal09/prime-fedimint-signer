@@ -216,6 +216,10 @@ struct TransactionCase {
     /// The outgoing-branch notes this case stages or reclaims, with their mint signatures: what
     /// the phone sends to release them.
     issued: Vec<IssuedNoteCase>,
+    /// For a Lightning payment: what the gateway checks the payer's authorisation against, the
+    /// SHA-256 of fedimint's encoding of `LightningInvoice::Bolt11(invoice)`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gateway_auth_message: Option<String>,
     inputs_msat: u64,
     outputs_msat: u64,
     module_fees_msat: u64,
@@ -333,6 +337,7 @@ impl Built {
                 .collect(),
             funded,
             issued: Vec::new(),
+            gateway_auth_message: None,
             inputs_msat: self.in_msat,
             outputs_msat: self.out_msat,
             module_fees_msat: self.fees_msat,
@@ -370,7 +375,11 @@ fn scenario(rng: &mut ChaCha20Rng) -> (Scenario, Vec<ContractCase>) {
     built.fees_msat += fee_msat(LIGHTNING_FEE, contract.amount.msats);
     let overpay = built.change(rng, &keys);
     let invoice = invoice(rng, payment_hash, invoice_msat);
-    let pay = built.finish(
+    let gateway_auth_message = fedimint_lnv2_common::LightningInvoice::Bolt11(
+        invoice.parse().expect("the invoice parses"),
+    )
+    .consensus_hash::<sha256::Hash>();
+    let mut pay = built.finish(
         rng,
         &fed,
         "pay_invoice",
@@ -379,6 +388,7 @@ fn scenario(rng: &mut ChaCha20Rng) -> (Scenario, Vec<ContractCase>) {
         vec![],
         vec![],
     );
+    pay.gateway_auth_message = Some(h(gateway_auth_message.to_byte_array()));
     let funded_txid = pay.txid.clone();
     transactions.push(pay);
     contracts.push(contract_case(&contract));

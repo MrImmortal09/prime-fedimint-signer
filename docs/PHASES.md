@@ -244,6 +244,26 @@ How a watch-only wallet works:
 4. **Ecash.** Prime stages notes on its outgoing branch, then releases them as a token, on its
    screen or to the phone. An unredeemed token comes back with a reclaim.
 
+### How it is verified
+
+`cargo test --manifest-path wallet/Cargo.toml` runs fedimint's test fixtures: a federation with the
+mint v2, LNv2 and dummy modules in the test process, a gateway that checks payer authorisations as a
+real one does, and Prime as the real `fps-signer` service behind the same link the simulator bridge
+implements.
+
+| Check | Result |
+|---|---|
+| Receiving | Funds and ecash from a stranger arrive with no request reaching Prime; the wallet refuses to hand its notes out itself |
+| Lightning payment | Prime reviews the invoice and signs; the gateway accepts Prime's authorisation and pays |
+| Cancelled payment | The refund goes through Prime and only fees are lost |
+| Ecash send | Prime stages the notes, releases them without a second review, and a stranger redeems the token; a token shown only on Prime comes back with a reclaim |
+| Declined spend | A rejected send or payment leaves the balance and Prime's ledger as they were |
+| Recovery | A new phone with the same view material recovers the exact balance from the federation |
+| Local keys | A client that holds its own keys works as before the patches |
+| Gateway authorisation on the device | The message equals fedimint's own invoice hash (golden vector), the signature verifies against the contract's refund key, and only payments carry one |
+
+CI gains a job that clones fedimint, applies the series and runs these tests.
+
 ### Findings
 
 - **LNv2 needs the refund key twice.** Beyond refunds, the gateway pays only with the refund key's
