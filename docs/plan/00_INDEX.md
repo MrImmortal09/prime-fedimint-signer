@@ -1,7 +1,8 @@
 # Passport Prime Fedimint signer: planning documents
 
 Scope as of 2026-10-30 (evening revision): **Fedimint only**. The earlier Fedimint + Cashu plan is in
-`old/` and stays there as the record of what adding Cashu would take.
+`old/` and stays there as the record of what adding Cashu would take. On 2026-10-31 Cashu came back as
+a second backend beside Fedimint, planned in `12_CASHU.md` (D14).
 
 | File | What it holds |
 |---|---|
@@ -17,6 +18,7 @@ Scope as of 2026-10-30 (evening revision): **Fedimint only**. The earlier Fedimi
 | `09_NFC.md` | NFC as an optional stretch stage: how easy it is, the two-tap design, the patch |
 | `10_DECISIONS.md` | Decision log with reasons |
 | `11_SOURCES.md` | Every source used |
+| `12_CASHU.md` | Cashu as a second backend: what stays frozen, the `fps-cashu-v1` keys, what Prime checks, the stacked pull requests |
 
 ## The project in one paragraph
 
@@ -32,8 +34,8 @@ first external-signer design for Fedimint.
 See `10_DECISIONS.md` for the reasons. In short:
 
 - Prime is a signer and trusted display, not a full wallet.
-- Fedimint only. Cashu is dropped from the hackathon; the input router still recognises Cashu tokens and
-  says they are unsupported.
+- Fedimint first. Cashu was dropped from the hackathon (D2) and came back on 2026-10-31 as a second
+  backend that leaves the Fedimint path untouched (D14, `12_CASHU.md`).
 - Transport: QuantumLink Bluetooth is primary through a KeyOS patch; animated QR/UR and the simulator
   file bridge are the fallbacks and the stock-device path.
 - NFC is an optional stretch stage after QR works, not a dependency of anything.
