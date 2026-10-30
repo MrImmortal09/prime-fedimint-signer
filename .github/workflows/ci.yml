@@ -67,3 +67,17 @@ jobs:
         # From the wallet directory, so its cargo config gives fedimint's fixtures their test timings.
         working-directory: wallet
         run: cargo test
+
+  # Cashu work happens beside the Fedimint code. Neither lockfile the Fedimint builds use may move:
+  # a new normal dependency in a crate wallet/ uses by path would re-resolve wallet/Cargo.lock.
+  locked:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: The root workspace resolves as locked
+        run: cargo metadata --locked --format-version 1 > /dev/null
+      - name: fedimint with the patch series
+        run: scripts/fedimint-checkout.sh
+      - name: The wallet workspace resolves as locked
+        run: cargo metadata --locked --format-version 1 --manifest-path wallet/Cargo.toml > /dev/null
