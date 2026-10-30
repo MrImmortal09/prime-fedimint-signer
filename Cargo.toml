@@ -1,6 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["crates/policy", "crates/protocol", "crates/signer", "crates/signer-core", "spikes/xous-crypto"]
+members = [
+    "crates/policy",
+    "crates/protocol",
+    "crates/signer",
+    "crates/signer-core",
+    "crates/transport",
+    "spikes/xous-crypto",
+]
 # Built separately: `prime-app` by the Foundation SDK, `devtools` against the real fedimint crates.
 exclude = ["prime-app", "devtools"]
 

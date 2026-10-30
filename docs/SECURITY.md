@@ -82,6 +82,19 @@ What the user sees on the device is computed from these checks, never from label
   the receiver redeems it. `ShowOnDevice` keeps it off the phone.
 - **Privacy against a compromised phone.** The view material reveals every note in the federation.
 
+## On the device
+
+- **The review is the device's own.** The app shows what `fps-signer` computed from the request's
+  bytes, and only that. A request that needs approval waits for a tap on Approve or Reject.
+- **The PIN.** Spends above the policy threshold, 100,000 sats by default, also need the device PIN,
+  which the system's lock screen asks for. The app never sees the PIN.
+- **Tokens shown on the device stay there.** A `ShowOnDevice` release answers the phone with the
+  amount only; the token goes to the screen.
+- **Simulator-only code.** The file bridge, the pinned test seed and the state reset exist only in
+  hosted builds (`cfg(not(keyos))`). On the device the app reads its seed from KeyOS's
+  `GetAppSeed`, which asks the user once, and has no other way in but the scanner. A seed pinned in
+  the simulator sits in a plain file, so a simulator wallet must never hold real funds.
+
 ## Clock
 
 Invoice expiry is only a warning, and the daily limit counts per UTC day only when the device has a

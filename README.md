@@ -16,8 +16,8 @@ followed by a separate test commit.
 |---|---|---|
 | 0 | Repository, plan, device toolchain spike, CI | Done |
 | 1A | Wire protocol, signer core, policy, signer service, golden vectors | Done |
-| 1B | KeyOS app on the simulator with the file bridge | Next |
-| 2 | fedimint client signer boundary, end to end on a local federation | Planned |
+| 1B | KeyOS app on the simulator with the file bridge | Done |
+| 2 | fedimint client signer boundary, end to end on a local federation | Next |
 | 3 | Phone app and QR/UR on hardware | Planned |
 | 4 | Bluetooth through a KeyOS QuantumLink patch | Planned |
 | 5 | NFC tap-to-approve (optional) | Planned |
@@ -34,9 +34,11 @@ followed by a separate test commit.
 | `crates/signer-core/` | `fps-signer-core`: fedimint decoding, key scheme, analysis, signing, ecash release |
 | `crates/policy/` | `fps-policy`: spending limits |
 | `crates/signer/` | `fps-signer`: the service the KeyOS app embeds |
+| `crates/transport/` | `fps-transport`: animated QR framing and the simulator file bridge, both ends |
+| `prime-app/` | The KeyOS app, built with the Foundation SDK |
 | `devtools/` | Host-only: golden vectors and cross-checks against the real fedimint crates |
 | `spikes/xous-crypto/` | Phase 0 spike: the signer's crypto and encoding dependencies, built for the device |
-| `scripts/` | `sdk-shell.sh` runs a command in the Foundation SDK shell; `device-build.sh` builds crates for Passport Prime |
+| `scripts/` | `sdk-shell.sh` runs a command in the Foundation SDK shell; `device-build.sh` builds crates and `app-device-build.sh` the app for Passport Prime |
 
 ## Building and testing
 
@@ -61,6 +63,19 @@ use the SDK's pinned nightly and the `armv7a-unknown-xous-elf` target:
 ```sh
 scripts/device-build.sh -p fps-signer -p fps-signer-core -p fps-protocol -p fps-policy --release
 ```
+
+### The KeyOS app
+
+Run the app in the KeyOS simulator, then build it for the device without signing:
+
+```sh
+scripts/sdk-shell.sh bash -c 'cd prime-app && foundation sim'
+scripts/app-device-build.sh
+```
+
+In the simulator the app also serves a file bridge, `~/.fps-signer-sim`, which takes request
+envelopes in `inbox/` and answers in `outbox/` (see [`docs/PROTOCOL.md`](docs/PROTOCOL.md#transports)).
+`foundation build` produces the signed bundle once a publisher identity exists.
 
 ## Target platform
 

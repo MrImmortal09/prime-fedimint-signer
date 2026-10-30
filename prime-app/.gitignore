@@ -1,0 +1,7 @@
+target/
+.foundation-sdk/
+ui/ui
+manifest.toml
+# Copies of the SDK's agent skills; `foundation skills` restores them.
+.claude/skills/
+.agents/skills/

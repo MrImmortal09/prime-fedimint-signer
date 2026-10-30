@@ -2,7 +2,8 @@
 
 The messages between the phone wallet and Passport Prime. The reference implementation is
 `crates/protocol`. The same bytes travel over every transport: the simulator file bridge, animated UR
-(types `fps-request` and `fps-response`), QuantumLink and NFC.
+(types `fps-request` and `fps-response`), QuantumLink and NFC. [Transports](#transports) describes
+the first two.
 
 ## Envelope
 
@@ -110,3 +111,36 @@ durably before the answer leaves it.
 `InvalidTransaction`, `Unsupported`, `ForeignInput`, `InvalidNote`, `UnexpectedOutput`,
 `IntentMismatch`, `InvoiceMismatch`, `AlreadyReleased`, `PolicyLimit`, `UserRejected`, `Busy`,
 `NotFound`, `TooLarge`, `Internal`. Codes are stable; messages are for people and may change.
+
+## Transports
+
+`crates/transport` (`fps-transport`) implements both ends of each transport, so the device app and
+the programs that talk to it share the framing.
+
+### Animated QR
+
+- A message is one Uniform Resource (BCR-2020-005) of type `fps-request` (phone to device) or
+  `fps-response` (device to phone). Its payload is the envelope itself.
+- The sender shows the pure fountain parts in a loop. Each part is at most 300 characters and upper
+  case, so the codes use the QR alphanumeric mode.
+- The receiver collects parts in any order and case. It checks the message length each part claims
+  against the 64 KiB limit before it reassembles anything.
+- On Passport Prime the system scanner reassembles requests. A `[[qr-match-rules]]` entry routes
+  `fps-request` codes scanned from the Launcher to the app.
+- A token released with `ShowOnDevice` is shown as one plain QR code of the `fedimint…` string, which
+  any fedimint wallet can scan.
+
+### Simulator file bridge
+
+For development and tests, the app in the hosted KeyOS simulator also serves a host directory,
+`$FPS_SIM_DIR` or `~/.fps-signer-sim`:
+
+| Path | Written by | Contents |
+|---|---|---|
+| `inbox/*.cbor` | requester | One request envelope per file, taken in name order |
+| `outbox/<request id in hex>.cbor` | app | The response envelope; an unreadable request is answered as `000…0.cbor` |
+| `app-seed.hex` | test | Pins the app seed, so scenarios built for a known seed replay. Without it the app reads its seed from KeyOS |
+| `reset` | test | Present when the app starts: the app forgets its stored state |
+
+Both sides write under a temporary name and rename the file into place. A request that needs approval
+holds the queue until the user decides on the simulator's screen. Device builds have no bridge.

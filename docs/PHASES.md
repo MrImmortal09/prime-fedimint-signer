@@ -7,8 +7,8 @@ split into 1A (host-testable crates) and 1B (the KeyOS app) because it is the la
 |---|---|---|---|
 | 0 | Stage 0 | Repository, plan, device toolchain spike, CI | Done |
 | 1A | Stage 1 | Wire protocol, signer core, policy, signer service, golden vectors | Done |
-| 1B | Stage 1 | KeyOS app on the simulator with the file bridge | Next |
-| 2 | Stage 2 | fedimint client signer boundary, end to end on a local federation | Planned |
+| 1B | Stage 1 | KeyOS app on the simulator with the file bridge | Done |
+| 2 | Stage 2 | fedimint client signer boundary, end to end on a local federation | Next |
 | 3 | Stage 3 | Phone app, QR/UR, hardware | Planned |
 | 4 | Stage 4 | Bluetooth through a KeyOS QuantumLink patch | Planned |
 | 5 | Stage 5 | NFC tap-to-approve (optional) | Planned |
@@ -43,8 +43,7 @@ Two facts the later phases rely on:
 
 - The target is a custom target spec in the SDK sysroot, so `RUSTFLAGS` must include
   `-Zunstable-options`, as `foundation build` does. `scripts/device-build.sh` sets the same flags.
-- This proves compilation only. Linking a complete app is verified with `foundation build` in
-  Phase 1B.
+- This proves compilation only. Phase 1B links the complete app.
 
 ### Host cost baseline
 
@@ -131,3 +130,70 @@ regenerates the vectors; CI checks they are unchanged.
 - Device timings for signing and BLS checks need hardware.
 - The phone side of the key scheme lands with the fedimint client changes in Phase 2.
 - Mint v1, wallet v1 and LN v1 decoders for older federations.
+
+## Phase 1B: the KeyOS app
+
+### Delivered
+
+| Path | What it is |
+|---|---|
+| `prime-app/` | The KeyOS app `fedimint-signer`, on Foundation SDK 1.1.0 and Slint: a home screen listing the imported federations, and review, result and settings screens |
+| `crates/transport/` (`fps-transport`) | Both ends of both transports: animated-QR framing and reassembly, and the simulator file bridge |
+| `scripts/app-device-build.sh` | Compiles and links the app for Passport Prime without signing it |
+
+How the app works:
+
+- **Requests in.** The system QR scanner, opened from the app or from the Launcher, which hands
+  `fps-request` codes to the app through a `[[qr-match-rules]]` entry. In the simulator, the file
+  bridge as well.
+- **Every decision is the service's.** The app passes the request bytes to `fps-signer` and shows the
+  review it returns. Nothing on screen comes from labels the phone supplied.
+- **Gates.** Approve or Reject on the review screen. Spends above 100,000 sats also need the device PIN,
+  which the system's lock screen asks for.
+- **Answers out.** An animated `fps-response` code for a scanned request, or the bridge. A
+  `ShowOnDevice` release shows the token as one QR code for the receiver and never sends it to the
+  phone.
+- **One request at a time.** A review or a result on screen holds the bridge queue.
+- **State.** One durable file in the app's encrypted `AppData`, written before each answer leaves.
+- **Settings.** Three switches: the PIN above 100,000 sats, mint signature checks on spends, and
+  releasing prepared notes without a second review.
+
+### Device build
+
+`scripts/app-device-build.sh` compiles and links the app for `armv7a-unknown-xous-elf` with the
+flags `foundation build` uses. The result is a static PIE executable of 4.9 MB once stripped. The
+only `getrandom` in the device dependency graph is the SDK's TRNG-backed fork. Signing needs a
+publisher identity (`foundation cert gen`), so `foundation build`, sideloading and device timings
+wait for hardware in Phase 3.
+
+### Findings
+
+- **The app seed can only be read once the window is on screen.** The first `GetAppSeed` asks the
+  user for consent, and KeyOS shows that prompt only over a foreground window. A window becomes
+  foreground when its first frame arrives. Reading the seed before `ui.run()`, from a zero-delay
+  timer, or inside the `Visible` event all block before that frame, and the app hangs on a dark
+  screen. The app opens the signer from a short timer started on `Visible`, which fires after the
+  event loop has drawn the first frame. The SDK's gotcha 24 covers the first case; the others look
+  like fixes but are not.
+- **The getrandom patch had gone missing.** `prime-app/Cargo.toml` had lost the scaffold's patch to
+  the SDK's TRNG-backed `getrandom`, so the build used the crates.io release, which has no Xous
+  backend. It is restored.
+- **The simulator's debug channel leaks a kernel thread slot per connection.** About 28 separate
+  `foundation-passport-drive --sim` calls fill the 32-slot thread table, and the hosted kernel
+  panics. One `foundation-passport-drive mcp --sim` session survives any number of calls, so the test
+  driver keeps one open. Worth reporting to Foundation.
+- **The system PIN pad drops fast taps, and a closing system modal swallows taps meant for the app.**
+  The test driver types at human speed and waits for each screen to be drawn and still.
+- **UR frame count.** The fountain encoder picks its own fragment length, so the number of pure parts
+  comes from the encoder, not from dividing the message length.
+- **`GetRandom` is not needed.** The SDK's `getrandom` talks to the TRNG server directly, so the app
+  no longer asks for that permission.
+
+### Still open
+
+- Signing, sideloading and on-device timings.
+- The 256 KiB device stack. The simulator cannot show an overflow (SDK gotcha 25); `foundation build`
+  reports large stack frames once the app can be signed.
+- Scanning through a camera. The simulator's camera is the host webcam, so the QR path has unit tests
+  only until hardware.
+- The settings screen switches the PIN threshold on and off but does not edit amounts.

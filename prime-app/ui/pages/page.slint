@@ -1,0 +1,82 @@
+import { Theme, UISize, ControlSize, ButtonVariant } from "@ui/theme.slint";
+import { Button } from "@ui/button.slint";
+import { Card } from "@ui/card.slint";
+import { Navigate } from "../gen/navigate.slint";
+import { Callbacks } from "../callbacks.slint";
+import { Heading, Muted } from "../widgets.slint";
+
+export component MainPagePage inherits Rectangle {
+    background: Theme.palette-background;
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding-left: Theme.spacing-xl;
+        padding-right: Theme.spacing-xl;
+        padding-top: Theme.spacing-xl + UISize.control-center-status-bar-height;
+        padding-bottom: Theme.spacing-xl;
+        spacing: Theme.spacing-lg;
+
+        Heading { text: "Fedimint Signer"; }
+
+        Muted {
+            text: Callbacks.federations.length == 0
+                ? "Scan a pairing request from your phone wallet to add a federation."
+                : "Your federations";
+        }
+
+        Flickable {
+            vertical-stretch: 1;
+            VerticalLayout {
+                width: parent.width;
+                alignment: start;
+                spacing: Theme.spacing-md;
+                for federation in Callbacks.federations: Card {
+                    width: 100%;
+                    title: federation.name;
+                    body: federation.detail;
+                }
+            }
+        }
+
+        if Callbacks.ledger-note != "": Muted {
+            text: Callbacks.ledger-note;
+            font-size: Theme.font-size-label;
+        }
+
+        if Callbacks.notice != "": Muted {
+            text: Callbacks.notice;
+            font-size: Theme.font-size-label;
+        }
+
+        if Callbacks.status != "": Text {
+            text: Callbacks.status;
+            color: Theme.palette-danger;
+            font-family: Theme.font-primary;
+            font-size: Theme.font-size-label;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+
+        Button {
+            width: 100%;
+            text: "Scan request";
+            size: ControlSize.lg;
+            full-width: true;
+            clicked => {
+                Callbacks.scan-request();
+            }
+        }
+
+        Button {
+            width: 100%;
+            text: "Settings";
+            variant: ButtonVariant.secondary;
+            size: ControlSize.md;
+            full-width: true;
+            clicked => {
+                Navigate.settings-page({ });
+            }
+        }
+    }
+}

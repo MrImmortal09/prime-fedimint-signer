@@ -1,0 +1,15 @@
+[package]
+name = "fps-transport"
+description = "Animated QR codes and the simulator file bridge for the Prime Fedimint signer protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+fps-protocol = { path = "../protocol" }
+# Foundation's UR implementation, the one KeyOS's own scanner uses.
+foundation-ur = "0.4"
+# Already in the tree through foundation-ur; used to read a part's header before reassembly.
+minicbor = { version = "0.24", default-features = false }
+hex = "0.4"

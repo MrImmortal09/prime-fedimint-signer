@@ -1,0 +1,15 @@
+import { Theme, UISize, Images } from "@ui/theme.slint";
+import { Router } from "gen/router.slint";
+import { Callbacks, Utils, FederationRow, ReviewRow } from "callbacks.slint";
+
+export { Theme, Images, Callbacks, Utils, FederationRow, ReviewRow }
+export * from "gen/exports.slint";
+
+export component AppWindow inherits Window {
+    title: "Fedimint Signer";
+    preferred-width: UISize.screen-width;
+    preferred-height: UISize.screen-height;
+    background: Theme.palette-background;
+
+    Router { }
+}

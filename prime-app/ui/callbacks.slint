@@ -1,0 +1,49 @@
+// The bridge between the Rust app (src/main.rs, src/view.rs) and the screens: Rust sets the
+// properties and handles the callbacks; the pages read and invoke them.
+
+export struct FederationRow {
+    name: string,
+    detail: string,
+}
+
+export struct ReviewRow {
+    label: string,
+    value: string,
+}
+
+export global Utils {
+    pure callback qrcode(string, color, color) -> image;
+}
+
+export global Callbacks {
+    // Home: a problem to show, and what just happened
+    in-out property <string> status;
+    in-out property <string> notice;
+    in-out property <[FederationRow]> federations;
+    in-out property <string> ledger-note;
+    callback scan-request();
+
+    // Review of the request waiting for approval
+    in-out property <string> review-title;
+    in-out property <string> review-amount;
+    in-out property <[ReviewRow]> review-rows;
+    in-out property <[string]> review-warnings;
+    in-out property <bool> review-needs-pin;
+    callback approve();
+    callback reject();
+
+    // Result screens: an answer for the phone, or ecash for a receiver
+    in-out property <string> result-title;
+    in-out property <string> result-message;
+    in-out property <[string]> result-frames;
+    in-out property <bool> result-secret;
+    in-out property <bool> result-has-next;
+    callback next();
+
+    // Settings
+    in-out property <bool> setting-pin;
+    in-out property <bool> setting-verify-notes;
+    in-out property <bool> setting-auto-release;
+    in-out property <string> setting-summary;
+    callback settings-changed();
+}

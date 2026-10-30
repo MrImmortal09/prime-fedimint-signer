@@ -1,0 +1,69 @@
+import { Theme, UISize, ControlSize } from "@ui/theme.slint";
+import { Button } from "@ui/button.slint";
+import { Switch } from "@ui/switch.slint";
+import { Navigate } from "../../gen/navigate.slint";
+import { Callbacks } from "../../callbacks.slint";
+import { Heading, Muted } from "../../widgets.slint";
+
+export component SettingsPagePage inherits Rectangle {
+    background: Theme.palette-background;
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding-left: Theme.spacing-xl;
+        padding-right: Theme.spacing-xl;
+        padding-top: Theme.spacing-xl + UISize.control-center-status-bar-height;
+        padding-bottom: Theme.spacing-xl;
+        spacing: Theme.spacing-lg;
+
+        Heading { text: "Settings"; }
+
+        Switch {
+            label: "PIN above 100,000 sats";
+            description: "Ask for the PIN before approving anything larger.";
+            checked: Callbacks.setting-pin;
+            changed(value) => {
+                Callbacks.setting-pin = value;
+                Callbacks.settings-changed();
+            }
+        }
+
+        Switch {
+            label: "Check mint signatures";
+            description: "Verify every note before signing. Slower, catches forged notes early.";
+            checked: Callbacks.setting-verify-notes;
+            changed(value) => {
+                Callbacks.setting-verify-notes = value;
+                Callbacks.settings-changed();
+            }
+        }
+
+        Switch {
+            label: "Send prepared ecash without asking again";
+            description: "After you approve preparing a send, release it when the phone asks.";
+            checked: Callbacks.setting-auto-release;
+            changed(value) => {
+                Callbacks.setting-auto-release = value;
+                Callbacks.settings-changed();
+            }
+        }
+
+        Muted {
+            text: Callbacks.setting-summary;
+            font-size: Theme.font-size-label;
+        }
+
+        Rectangle { vertical-stretch: 1; }
+
+        Button {
+            width: 100%;
+            text: "Back";
+            size: ControlSize.md;
+            full-width: true;
+            clicked => {
+                Navigate.backward();
+            }
+        }
+    }
+}

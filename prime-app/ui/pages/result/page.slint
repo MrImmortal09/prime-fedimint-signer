@@ -1,0 +1,53 @@
+import { Theme, UISize, ControlSize } from "@ui/theme.slint";
+import { Button } from "@ui/button.slint";
+import { Callbacks } from "../../callbacks.slint";
+import { AnimatedQr, Heading, Muted } from "../../widgets.slint";
+
+// An answer for the phone as an animated code, or ecash for a receiver.
+export component ResultPagePage inherits Rectangle {
+    background: Theme.palette-background;
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding-left: Theme.spacing-xl;
+        padding-right: Theme.spacing-xl;
+        padding-top: Theme.spacing-xl + UISize.control-center-status-bar-height;
+        padding-bottom: Theme.spacing-xl;
+        spacing: Theme.spacing-lg;
+
+        Heading { text: Callbacks.result-title; }
+
+        Muted { text: Callbacks.result-message; }
+
+        if Callbacks.result-frames.length > 0: HorizontalLayout {
+            alignment: center;
+            AnimatedQr {
+                width: UISize.screen-width - Theme.spacing-xl * 2;
+                height: self.width;
+                frames: Callbacks.result-frames;
+            }
+        }
+
+        if Callbacks.result-secret: Text {
+            text: "This code is money. Only show it to the person you are paying.";
+            color: Theme.palette-danger;
+            font-family: Theme.font-primary;
+            font-size: Theme.font-size-label;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+
+        Rectangle { vertical-stretch: 1; }
+
+        Button {
+            width: 100%;
+            text: Callbacks.result-has-next ? "Next" : "Done";
+            size: ControlSize.lg;
+            full-width: true;
+            clicked => {
+                Callbacks.next();
+            }
+        }
+    }
+}
