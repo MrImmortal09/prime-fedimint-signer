@@ -405,16 +405,24 @@ dependencies = [
 name = "fps-sim-e2e"
 version = "0.1.0"
 dependencies = [
- "base64",
  "bitcoin",
  "ciborium",
  "fps-protocol",
  "fps-signer-core",
+ "fps-simdrive",
  "fps-transport",
  "hex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "fps-simdrive"
+version = "0.1.0"
+dependencies = [
+ "base64",
  "image",
  "rqrr",
- "serde",
  "serde_json",
 ]
 

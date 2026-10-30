@@ -1,0 +1,6 @@
+# fedimint's test fixtures are built for test-mode timings: guardians poll the chain every 100 ms
+# instead of every minute, sessions are short, and so on. fedimint switches these on when its tests
+# run under nextest, so the wallet's tests say they do too. Cargo reads this file only when it runs
+# from this directory or below.
+[env]
+NEXTEST = "1"

@@ -5,6 +5,7 @@ members = [
     "crates/protocol",
     "crates/signer",
     "crates/signer-core",
+    "crates/simdrive",
     "crates/transport",
     "spikes/xous-crypto",
     "tools/sim-e2e",

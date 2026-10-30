@@ -10,12 +10,9 @@ publish.workspace = true
 fps-protocol = { path = "../../crates/protocol" }
 fps-signer-core = { path = "../../crates/signer-core" }
 fps-transport = { path = "../../crates/transport" }
+fps-simdrive = { path = "../../crates/simdrive" }
 bitcoin.workspace = true
 ciborium.workspace = true
 serde.workspace = true
-base64 = "0.22"
 hex = "0.4"
 serde_json = "1"
-# Reading the ecash QR code off a simulator screenshot.
-image = { version = "0.25", default-features = false, features = ["png"] }
-rqrr = "0.11"

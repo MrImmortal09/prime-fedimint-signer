@@ -9,8 +9,8 @@ and 2 are each split in two because they are the largest.
 | 1A | Stage 1 | Wire protocol, signer core, policy, signer service, golden vectors | Done |
 | 1B | Stage 1 | KeyOS app on the simulator with the file bridge | Done |
 | 2A | Stage 2 | fedimint signer boundary and the watch-only client, on an in-process federation | Done |
-| 2B | Stage 2 | fedimint-sdk bindings, devimint and the simulator, end to end | Next |
-| 3 | Stage 3 | Phone app, QR/UR, hardware | Planned |
+| 2B | Stage 2 | The watch-only wallet against the KeyOS app in the simulator, on-chain withdrawal | Done |
+| 3 | Stage 3 | Phone app with fedimint-sdk bindings, QR/UR, hardware | Next |
 | 4 | Stage 4 | Bluetooth through a KeyOS QuantumLink patch | Planned |
 | 5 | Stage 5 | NFC tap-to-approve (optional) | Planned |
 | 6 | Stage 6 | Hardening and upstreaming | Planned |
@@ -283,9 +283,50 @@ CI gains a job that clones fedimint, applies the series and runs these tests.
 
 ### Still open
 
-- fedimint-sdk with UniFFI bindings, devimint with a real gateway, and the simulator over the bridge
-  (Phase 2B).
+- fedimint-sdk with UniFFI bindings (Phase 3) and devimint with a real gateway (Phase 6). The
+  simulator over the bridge landed in Phase 2B.
 - On-chain withdrawal from the watch-only wallet. Prime signs withdrawals (Phases 1A and 1B); the
-  phone side is tested once devimint runs (Phase 2B).
+  phone side is tested in Phase 2B, against fedimint's fake chain.
 - Re-authorising a gateway after an app restart interrupts a payment.
 - Database migrations for the changed encodings, before anything goes upstream (Phase 6).
+
+## Phase 2B: Prime in the loop
+
+The plan's Stage 2 ends with the simulated Prime signing every spend of a fedimint wallet. This phase
+does that with the real KeyOS app: the watch-only wallet of Phase 2A reaches the app in the
+simulator over the file bridge, and every review is decided by tapping the simulator's screen.
+
+### Delivered
+
+| Path | What it is |
+|---|---|
+| `wallet/fps-wallet/tests/simulator.rs` | The wallet against the app in the simulator: pairing, two Lightning payments and a refund, a withdrawal, a declined spend, and three ecash sends, one of them taken back |
+| `crates/simdrive/` (`fps-simdrive`) | The simulator screen driver, moved out of `tools/sim-e2e`, plus `Hand`: a person at the simulator on a thread of its own, who decides each review as told, reads the QR code off each result screen and taps Done |
+| `scripts/sim-wallet-e2e.sh` | Starts the app in the simulator with a known seed and a clean start, runs the wallet test, stops the simulator and restores the developer's seed. `scripts/simulator.sh` holds the start and stop code both simulator scripts share |
+| `wallet/fps-wallet/tests/` | Wallet v2 joins the in-process federation, with a withdrawal test: a stranger pegs in, the wallet withdraws, Prime signs, and the address receives exactly the value |
+| `wallet/.cargo/config.toml` | Gives fedimint's fixtures their test timings |
+
+The plan also put fedimint-sdk bindings and devimint in Stage 2. The bindings move to Phase 3, where
+the phone app needs them. devimint moves to Phase 6: the in-process federation already runs
+fedimint's real consensus and modules, so only the gateway and the chain are stand-ins.
+
+### Findings
+
+- **The app needed no change.** Transactions built by the patched fedimint client for a live
+  federation pass the same analysis and reviews as the golden scenario of Phase 1B.
+- **fedimint's fixtures expect test timings.** fedimint shortens its intervals when its tests run
+  under nextest. Under plain `cargo test` the guardians polled the fake chain once a minute, and the
+  withdrawal test took three minutes. With the switch on, it takes eight seconds, and the whole
+  wallet suite about thirteen.
+- **A screen's log line comes before the screen.** The hand waits for the button colours of the
+  screen it expects, grey Reject beside yellow Approve or one yellow Done, and for two identical
+  screenshots, before it taps. After the tap it waits for the screen to change, so it never acts on
+  a stale screenshot.
+
+### Still open
+
+- fedimint-sdk with UniFFI bindings, for the phone app (Phase 3).
+- devimint with a real gateway and bitcoind (Phase 6).
+- The hand cannot type the PIN, so the wallet test stays under the PIN threshold. Phase 1B's scenario
+  covers an approval with the PIN.
+- Re-authorising a gateway after an app restart, and the database migrations (Phase 6).

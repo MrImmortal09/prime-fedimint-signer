@@ -72,6 +72,6 @@ also reformats every path dependency, the fedimint checkout included.
   whole step, with a new nonce, so the person is asked again.
 - The gateway authorisation is kept in memory. A payment interrupted by an app restart before the
   gateway accepted it needs a new authorisation, which Prime cannot give without a new request type
-  (Phase 2B).
+  (Phase 6).
 - Notes staged on Prime's outgoing branch and not yet released are invisible to recovery, because
   only Prime can derive their nonces.

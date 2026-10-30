@@ -18,8 +18,8 @@ followed by a separate test commit.
 | 1A | Wire protocol, signer core, policy, signer service, golden vectors | Done |
 | 1B | KeyOS app on the simulator with the file bridge | Done |
 | 2A | fedimint signer boundary and the watch-only client, on an in-process federation | Done |
-| 2B | fedimint-sdk bindings, devimint and the simulator, end to end | Next |
-| 3 | Phone app and QR/UR on hardware | Planned |
+| 2B | The watch-only wallet against the KeyOS app in the simulator, on-chain withdrawal | Done |
+| 3 | Phone app with fedimint-sdk bindings, QR/UR on hardware | Next |
 | 4 | Bluetooth through a KeyOS QuantumLink patch | Planned |
 | 5 | NFC tap-to-approve (optional) | Planned |
 | 6 | Hardening and upstreaming | Planned |
@@ -36,13 +36,14 @@ followed by a separate test commit.
 | `crates/policy/` | `fps-policy`: spending limits |
 | `crates/signer/` | `fps-signer`: the service the KeyOS app embeds |
 | `crates/transport/` | `fps-transport`: animated QR framing and the simulator file bridge, both ends |
+| `crates/simdrive/` | `fps-simdrive`: the simulator's screen for end-to-end tests, and a hand that approves reviews on it |
 | `prime-app/` | The KeyOS app, built with the Foundation SDK |
 | `wallet/` | `fps-wallet`: the phone side, a watch-only fedimint client with Prime as its signer |
 | `patches/fedimint/` | The patch series that gives fedimint's client a signer boundary ([`docs/FEDIMINT_PATCHES.md`](docs/FEDIMINT_PATCHES.md)) |
 | `devtools/` | Host-only: golden vectors and cross-checks against the real fedimint crates |
 | `spikes/xous-crypto/` | Phase 0 spike: the signer's crypto and encoding dependencies, built for the device |
 | `tools/sim-e2e/` | The end-to-end driver for the app in the simulator |
-| `scripts/` | `sdk-shell.sh` runs a command in the Foundation SDK shell; `device-build.sh` builds crates and `app-device-build.sh` the app for Passport Prime; `sim-e2e.sh` runs the simulator check |
+| `scripts/` | `sdk-shell.sh` runs a command in the Foundation SDK shell; `device-build.sh` builds crates and `app-device-build.sh` the app for Passport Prime; `sim-e2e.sh` and `sim-wallet-e2e.sh` run the simulator checks; `fedimint-checkout.sh` prepares the patched fedimint |
 
 ## Building and testing
 
@@ -70,12 +71,13 @@ scripts/device-build.sh -p fps-signer -p fps-signer-core -p fps-protocol -p fps-
 
 ### The phone side
 
-The watch-only client builds against fedimint with the patch series applied. The first build takes
-a while, because fedimint's test fixtures run a whole federation in the test process:
+The watch-only client builds against fedimint with the patch series applied. The tests run a whole
+federation in the test process, with fedimint's fake chain. Run them from `wallet/`, whose cargo
+config gives fedimint's fixtures their test timings; the first build takes a while:
 
 ```sh
 scripts/fedimint-checkout.sh
-cargo test --manifest-path wallet/Cargo.toml
+cd wallet && cargo test
 ```
 
 ### The KeyOS app
@@ -92,10 +94,13 @@ envelopes in `inbox/` and answers in `outbox/` (see [`docs/PROTOCOL.md`](docs/PR
 `foundation build` produces the signed bundle once a publisher identity exists.
 
 The end-to-end check plays the golden scenario through the simulator: the bridge, the screen, the
-system PIN, and a restart. It needs no other simulator running:
+system PIN, and a restart. The wallet check puts the app behind the watch-only wallet instead: pairing,
+Lightning payments and a refund, a withdrawal, a declined spend, and ecash sends, with every review
+decided by tapping the simulator screen. Each needs no other simulator running:
 
 ```sh
 scripts/sim-e2e.sh
+scripts/sim-wallet-e2e.sh
 ```
 
 ## Target platform

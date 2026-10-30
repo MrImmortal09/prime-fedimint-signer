@@ -20,7 +20,6 @@
 //! simulator's PIN (default 123456, what the hosted security server starts with).
 
 mod scenario;
-mod screen;
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -33,9 +32,9 @@ use fps_protocol::{
 use fps_signer_core::{
     analyze, plan_release, AnalysisOptions, EmptyLedger, Federation, FederationKeys,
 };
+use fps_simdrive::{self as screen, Screen, APPROVE, DONE, REJECT};
 use fps_transport::bridge::Bridge;
 use scenario::{Case, Scenario, ScenarioLedger};
-use screen::{Screen, APPROVE, DONE, REJECT};
 
 /// How long the app may take to answer once it has what it needs.
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(20);
