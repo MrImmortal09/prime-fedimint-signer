@@ -14,3 +14,8 @@
 
 .DS_Store
 *.swp
+
+# iOS: Xcode build output, the packaged Rust core (scripts/ios-core.sh), per-user Xcode state
+/ios/build/
+/ios/FpsMobile.xcframework/
+xcuserdata/

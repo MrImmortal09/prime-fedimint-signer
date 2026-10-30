@@ -39,12 +39,13 @@ followed by a separate test commit.
 | `crates/simdrive/` | `fps-simdrive`: the simulator's screen for end-to-end tests, and a hand that approves reviews on it |
 | `prime-app/` | The KeyOS app, built with the Foundation SDK |
 | `wallet/` | `fps-wallet`: the phone side, a watch-only fedimint client with Prime as its signer |
-| `wallet/fps-mobile/` | `fps-mobile`: the phone wallet's core for the Android app, exported to Kotlin with UniFFI; the generated bindings are in `bindings/kotlin/` |
+| `wallet/fps-mobile/` | `fps-mobile`: the phone wallet's core, exported with UniFFI; the generated Kotlin bindings are in `bindings/kotlin/` |
+| `ios/` | Prime Wallet, the iOS app: SwiftUI on the core's Swift bindings, reaching Prime over animated QR codes |
 | `patches/fedimint/` | The patch series that gives fedimint's client a signer boundary ([`docs/FEDIMINT_PATCHES.md`](docs/FEDIMINT_PATCHES.md)) |
 | `devtools/` | Host-only: golden vectors and cross-checks against the real fedimint crates |
 | `spikes/xous-crypto/` | Phase 0 spike: the signer's crypto and encoding dependencies, built for the device |
 | `tools/sim-e2e/` | The end-to-end driver for the app in the simulator |
-| `scripts/` | `sdk-shell.sh` runs a command in the Foundation SDK shell; `device-build.sh` builds crates and `app-device-build.sh` the app for Passport Prime; `sim-e2e.sh` and `sim-wallet-e2e.sh` run the simulator checks; `fedimint-checkout.sh` prepares the patched fedimint |
+| `scripts/` | `sdk-shell.sh` runs a command in the Foundation SDK shell; `device-build.sh` builds crates and `app-device-build.sh` the app for Passport Prime; `sim-e2e.sh` and `sim-wallet-e2e.sh` run the simulator checks; `fedimint-checkout.sh` prepares the patched fedimint; `ios-core.sh` and `android-core.sh` build the phone wallet's core |
 
 ## Building and testing
 
@@ -79,6 +80,24 @@ config gives fedimint's fixtures their test timings; the first build takes a whi
 ```sh
 scripts/fedimint-checkout.sh
 cd wallet && cargo test
+```
+
+### The iOS app
+
+Prime Wallet needs Xcode and an Apple development team (the project's `DEVELOPMENT_TEAM`). Build
+the Rust core into `ios/FpsMobile.xcframework`, then open the project, or build and install on a
+connected iPhone from the command line:
+
+```sh
+scripts/ios-core.sh
+open ios/PrimeWallet.xcodeproj
+```
+
+```sh
+cd ios
+xcodebuild -project PrimeWallet.xcodeproj -scheme PrimeWallet -destination 'id=<device UDID>' \
+  -allowProvisioningUpdates -derivedDataPath build build
+xcrun devicectl device install app --device <device UDID> build/Build/Products/Debug-iphoneos/PrimeWallet.app
 ```
 
 ### The KeyOS app
