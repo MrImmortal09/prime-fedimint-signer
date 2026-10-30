@@ -19,3 +19,21 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
+  # The live cross-checks against the real fedimint 0.13.0-beta.1 crates, which build only on a
+  # host with a C and C++ toolchain, CMake and libclang.
+  fedimint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: devtools
+      - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev cmake
+      - name: Golden vectors match what fedimint produces
+        run: |
+          cargo run --release --manifest-path devtools/Cargo.toml --bin golden
+          git diff --exit-code crates/signer-core/tests/vectors
+      - name: Device code cross-checked against fedimint
+        run: cargo test --release --manifest-path devtools/Cargo.toml

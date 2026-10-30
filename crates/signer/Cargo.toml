@@ -13,3 +13,8 @@ fps-policy = { path = "../policy" }
 ciborium.workspace = true
 serde.workspace = true
 zeroize = "1"
+
+[dev-dependencies]
+bitcoin.workspace = true
+serde_json = "1"
+hex = "0.4"

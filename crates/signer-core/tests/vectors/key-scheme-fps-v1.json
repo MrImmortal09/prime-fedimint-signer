@@ -1,0 +1,228 @@
+{
+  "scheme": "fps-v1",
+  "generator": "devtools/src/bin/golden.rs",
+  "cases": [
+    {
+      "app_seed": "0000000000000000000000000000000000000000000000000000000000000000",
+      "federation_id": "0000000000000000000000000000000000000000000000000000000000000000",
+      "spend_key": "0347f51324d82a2959fbec4b59284e6cf8041bf0343b21be0599e956c303ec42da",
+      "chain_code": "181ef54090d5aff7e49b06794f597ff6db86443e170929268a0676ebd3b32e9a",
+      "view_secret": "6477f2b261fee6965189dee26fd58f195b514e32b31bcaa8798b5f3e474a8571",
+      "tweak_filter": "ef610fc4530e169fc520e085bf50125b39a58b1f826b7da78605cf333e890b65",
+      "notes": [
+        {
+          "denomination": 0,
+          "tweak": "efb452203ecba274d40ca790fb396879",
+          "passes_filter": true,
+          "spend_nonce": "02d6f82b6c3eb4fc76490a7fea8cb10147f6e8ad7546f9d36737664638c09b9582",
+          "spend_secret": "f09d4aa74415b4f6742c632c87acb725d23c89cd540880872d265176b71fed32",
+          "spend_blinding_key": "1ff8b7ffeb55f4ddf07bb16891a4eac343e22332e464087fb85912c1083ae72c",
+          "spend_blinded_nonce": "b38ab2f3f0a523cb3143c8de02d1e493eaa2c98863bb89b18bb938250cb5868f2cc4df6957182e151c74bde924893a25",
+          "outgoing_nonce": "026566f9cc10a8874b08557bf47fa939025dde4f51aab1ea856ae6cf1e7cc354a1",
+          "outgoing_secret": "e59deae57c7c92c986c9672adbe8e541de831f45867eb915b0d5dea01fbbba1e",
+          "outgoing_blinding_key": "9df4c862c75bc29279b2729f009abf9acc3119ea1effb4c42cb549a158caf020",
+          "outgoing_blinded_nonce": "82970456c47439e90b7061187417bf3a68c8a784db2208b090e78db8f0727b64f632f2111ca6547862e942554c486f95"
+        },
+        {
+          "denomination": 9,
+          "tweak": "69f9a371beec9934de8bcfdc4c2ad08d",
+          "passes_filter": false,
+          "spend_nonce": "037f9e9e5c4ae620ebe5a459434a7d9ab103c19165e00ae50abbbb52c7d74f1f6d",
+          "spend_secret": "3230f0e297598a71a6aa7f3392ccae156dea8acba9cdef5ea28faea2c10d2ef1",
+          "spend_blinding_key": "72f53198f4958b6b9e4f484afbe299a51630f877f5d2aa509c78325c35aa5808",
+          "spend_blinded_nonce": "b2ec6d9c57325a8059fbf008cc6713ee9b5f7a7a05d21786daee2659c773ae8b0d1c7c7b20b1787fe9e35e789369ee5e",
+          "outgoing_nonce": "02020b6963a2640cfa45530928b6799b90b34be43e1a7cdd4435eab071debbdbef",
+          "outgoing_secret": "862a20fc0aeeac7bc46ef824f8e90a962d9dab941e68caaac6336091cecbc76a",
+          "outgoing_blinding_key": "c0aca3657018b9199951d0311b189cd0ed7f19dc9d51d03cbf925b0043fcd54b",
+          "outgoing_blinded_nonce": "b99fde5da3131fa61547af346bd8e9fe6899aa35b1782a4db25f7ba5a555775fef80dd7394343a9a596ded5492c5b505"
+        },
+        {
+          "denomination": 27,
+          "tweak": "0ea893ec0d49e97dd469e4f339e1e668",
+          "passes_filter": false,
+          "spend_nonce": "0308b146f98497dcd25ad8ce0504f39b31d38dfb1cfc4dd578bac69750e8274888",
+          "spend_secret": "3d7efaf941be0a36f1aa3576474fe0758bc152715d0e1dcc24256b6e82580553",
+          "spend_blinding_key": "5e1d249c6555249bd7500850113fbcadd41fd6327208690311d446023f858351",
+          "spend_blinded_nonce": "820e2fb3efac89a415078cfcbd10ed7aeae8519dcc7f2f8d5258987036bc92f1e439ba20108e784ea844d3e18c7269f8",
+          "outgoing_nonce": "03ddd944aa9434267f812e7754f4eaab0a69ddb0c6e646ed46391ce645c8b3c5a4",
+          "outgoing_secret": "96358727c96d93a8a496c7171c1bae7c49095ac648d354ecc0a77ae39da2d64c",
+          "outgoing_blinding_key": "2410d54ebee00884c0e2a9da051df6f2d8258c49ca569f5c5cdf6ed2f26d9011",
+          "outgoing_blinded_nonce": "b1519f5e1e19c4aaf8771d449f35ea8095cc2a7ebf0239247d92ca25240cccdd46f6384a4270a7dfd3cc67046a5253ca"
+        },
+        {
+          "denomination": 41,
+          "tweak": "2a3d87f10a4c89709f7e32a641b01a35",
+          "passes_filter": false,
+          "spend_nonce": "021c06c5452f4b19055af0606c51a353b7011e578e6c99bd738071b1c588fe12e1",
+          "spend_secret": "144796e5ecb1d2e68784458dc4f5d78cb2fcf058111589f7760e7b33c16d991c",
+          "spend_blinding_key": "4eb4a8b8edd5e788108f374459f3b6ffc713c526daeb79d4eee56ec9ab8f3c52",
+          "spend_blinded_nonce": "8ec943cd62950463a0039f443785c3c39eeb1637c7264cc80ece529e954feb27ca88a25e27126e15ec67a29c9d263068",
+          "outgoing_nonce": "03503af04085f4201f132923f4c982ebb3b5d631088fe1983e7ed9940a91b5059a",
+          "outgoing_secret": "3ab10eaf3c2d4532da98fbb9f69a5c82bcf39001b6bf18927c73960bfb403722",
+          "outgoing_blinding_key": "a3ddcce9e952b28e56735f0811e540dee2169a3dced9cff93bc56f54960b7c32",
+          "outgoing_blinded_nonce": "aaaec7099b0305e34ceeb38924ac981c20c7933acc1bd22d4a540c50b7ee33d9a6e7a2e1442558de4b64f3756297137c"
+        }
+      ],
+      "refunds": [
+        {
+          "ephemeral": "02ab15a4af9dd94b3e07d2773629b1d1635039e89acac49abe975c24fdea7f3008",
+          "refund_key": "028d49d98f2a878d8601b69a4fd0a93084d43f26abcb18988d803688cb425a294c",
+          "refund_secret": "67a9116470c4f3439c1a35bbacd3a3c65e85649c3c790bd2e7b9f89861460870"
+        },
+        {
+          "ephemeral": "027d84e0ca90d341b3df6c6b9d17cf54011205d212881388175d4ba9def1425e42",
+          "refund_key": "03fda80b419fa132be91dffbb222b01879f63b67803621d476c0d41977aed199a8",
+          "refund_secret": "9011322c82802219e28dffeea8b64e7efe9a578ecf77b3e6c3b8df1beb54f245"
+        }
+      ]
+    },
+    {
+      "app_seed": "8cfea58c77d3638a8de0a7599436ff6f98f844d8857ca231b2eef72ad038a64e",
+      "federation_id": "e0d00ef4522e069cc5f273021d865340f19de563cbecae86f835820ea134eb8b",
+      "spend_key": "0391e69bd42d9cbe95ac0994d2771d170435845f4d28b1a2ce280127e0fedb688d",
+      "chain_code": "9b865fdd9d9816f83a3454550dd9b974238dbcdbb2074e3db63d66cf75a9179d",
+      "view_secret": "855b13ea47e34fd741c9fc3768eb92c1f6b1d4de56fd4ea42983cd13e8f2bbae",
+      "tweak_filter": "ced859bd2399bc0cc27a16c5116f41ed4d22516f27707a32e9a0bf4bf1fb9d00",
+      "notes": [
+        {
+          "denomination": 0,
+          "tweak": "10af07bac33c1a6b712cc30362605d91",
+          "passes_filter": true,
+          "spend_nonce": "022b9e583135f4487fdac0d56a53432e9a2a72f87254250282adb4578f964e8cbe",
+          "spend_secret": "a63781ea60393a4b544d6a8eef47d7723789736b9a043be70e182f0c0a2a824f",
+          "spend_blinding_key": "83cc3df14e3e9c8d76d186f689869ef29c31ba9db6f8d349c663373cfef53f72",
+          "spend_blinded_nonce": "aa1f98ae66fb08aa48a879b19775b20619b7c3f1597fae71a68e84b044c68ad511abd8c6493c45c2c584464e3ab28891",
+          "outgoing_nonce": "03879775b6dc87c4cb2f5ba70d3dca4ac98b41267acec2e21fcaa78aea4798e83d",
+          "outgoing_secret": "8f0e0dec0763437178d0c8e0c95b3a006eeb7782ea7e48005e512d860fcf629e",
+          "outgoing_blinding_key": "841b6585a6ca74b9592ea6cf634143cb10e9d097a2eb797d8fe21fb98d364171",
+          "outgoing_blinded_nonce": "a1510ccc386dbde44d95712c1baf490ae034206079d5da2ce6326af1df9abaffd16d4a0f53f1fe80ec5e84d488cf5e2c"
+        },
+        {
+          "denomination": 9,
+          "tweak": "acbbb11a22dfc0b6a05362593679dea0",
+          "passes_filter": false,
+          "spend_nonce": "02c03c51fe2410303ea9f1b2ea151495eaa419aa0a6a0fbc6529bc96ec2dc2183d",
+          "spend_secret": "70f151f44b510201ce6f4de06be26119e578a2d2c11b132434a7f21cdae27439",
+          "spend_blinding_key": "d7c01960f5e71d25cba0f1a12b698bef6fb5b03bea2897ca082b44c37121bc47",
+          "spend_blinded_nonce": "95fdf577a049318aae70fe75927378135605880ddf2031bcc25a8057889b068cac36803ed082edf803631e66e3fbb7a3",
+          "outgoing_nonce": "03be63720d62cbd2cab835f507b3c7944e596ae003f241aac0991e4f9fa85bf184",
+          "outgoing_secret": "72fcf2de353702a6e36171688460b202a573c3e091ea7bd57ce2e807729f5a3c",
+          "outgoing_blinding_key": "cf0eca960cfefe3103bcfa86f426a5e75b2dc36b5f616cbde84148a916ffbf51",
+          "outgoing_blinded_nonce": "8c00135c52abfbdc2c222813265a7a56da7d0b1cc7734b66ab0f430edeafed56642d846aaaab9f1a414ef43966863db3"
+        },
+        {
+          "denomination": 27,
+          "tweak": "03be9f22a25fee3967cecb10839ff8d0",
+          "passes_filter": false,
+          "spend_nonce": "03908a6c1b06de069301904fa33e0bfc380e556051a5e66448a5deea358cbfd4f3",
+          "spend_secret": "79faecb80f2c24ce59633bc54b4cbed1ee59a4f488d50d5bd54986aa6eb9b4a3",
+          "spend_blinding_key": "6e4e9a8cca10294f6f4de76ff1b0d5da6788b38c6e754695afcf183c99915f52",
+          "spend_blinded_nonce": "928b3c4b29256722468f5e308d461052b8c7991bdb8bceb972b7cb49a5a31793bcc62a424b5c2a0131e0a26fced3b51d",
+          "outgoing_nonce": "031d026b14490aa85bf1181d0c26364d9d4f73dbcbab852b715e899fc08d4e37f2",
+          "outgoing_secret": "a754037440d1e531bdbfb143d483ed92b0572ddea7e0be66fc8edfa3c7a00c60",
+          "outgoing_blinding_key": "a5b4a7cd6f72d996b03d6f1b36798b4af33c29faff4c1f20bf178fd471fcb71e",
+          "outgoing_blinded_nonce": "b05945584f04446dde79985fec403a4dca37fa4701fecd35f0693c2dcefdfe9946273041683144061b98ef91c1b3acd9"
+        },
+        {
+          "denomination": 41,
+          "tweak": "941c149bfd70f53c83773aaacaa5b68b",
+          "passes_filter": false,
+          "spend_nonce": "02f692bedcf2cb52995f480e2d2961a5d9ddfa17069aa6a604eed319b5c388be36",
+          "spend_secret": "2ca1eb0c3e1ce669c501d833329aec49387d56160c8f9253184b0cfb24813f0e",
+          "spend_blinding_key": "ba5fbe34403ef7df332706012f6f045319a4836fb9c1f7e11102cb5a5c29436c",
+          "spend_blinded_nonce": "b35b48ab36d10277fdde4b22361c2bdc0f2b519bae50dc2ce327cd86a8f339e3a6b3567c96c9bd80a49ab0c0083d9b2b",
+          "outgoing_nonce": "024f5f9b8671479ff13fd956a9c23e8ffeea2c0ff3b32fb680345581e0092cafb2",
+          "outgoing_secret": "0324fd314c7c2c7b2d70b8fb9a79380303e9d692406103b0a96fa31164979d96",
+          "outgoing_blinding_key": "6efdcfd7540d6f042f58fcee6e0c2b9cef928484f6e63980604ba688fb5db426",
+          "outgoing_blinded_nonce": "ac7d7b101a6c4fbf9db3d62fc2cb7515668b46ad0036e8af4ee5a32abdb2291b28fdcedd86af770ab7de44524c9c218d"
+        }
+      ],
+      "refunds": [
+        {
+          "ephemeral": "03f82c004bb4071f9259f15ae6989647c67c7982736ae9ef62c7d5568241ed6fae",
+          "refund_key": "034e969f1016ecdcf9686c8d100bcd234a3e40f13e7c22ca25c69184b185ad0042",
+          "refund_secret": "0d25217bbbd56e771d7cedf7753e5dacef01bd33925b19d037445568f4d613ac"
+        },
+        {
+          "ephemeral": "02a9f4da93d0762ec08f76a22ffc930400182a51687283158d7a8ac025dda32641",
+          "refund_key": "02d8e1cb76b233703b183c8080d277a72bbd2338ac82d6d7d076f37d81dbefdbf7",
+          "refund_secret": "d882b2fac5dbddf5280a5cd700b295b5fdfec6ebe9e68e9514bc62ec6853e856"
+        }
+      ]
+    },
+    {
+      "app_seed": "7f223af8c823311d59f40ed5fbe7daac0b01cbdee3dbd8c8d2e03238c7605275",
+      "federation_id": "a0356a0dd5a1ad53782d09e4a1852bef6bf4c9d1ab1f3c5d6cf82785d803ce52",
+      "spend_key": "037085f9a73a314c570051e5bc8bf5c369acacb8c00c2124b5c447d18d32f43b20",
+      "chain_code": "075e966b65d86bdac2540cf389e141981d9f2e33862618fd60018949a7dc8f69",
+      "view_secret": "eb537264c00f665aef3dd987b40d752b00517bc5466e99d90ce489e012b73005",
+      "tweak_filter": "b09028f6f583112f1484b5340929c6813fd3894fd80d7ec15119fe94ab4692a5",
+      "notes": [
+        {
+          "denomination": 0,
+          "tweak": "7e1d255c138bc29a902565ccc130ae77",
+          "passes_filter": true,
+          "spend_nonce": "036d335983d071f48d8b1dc0c22e2264c9d605724bbed39b572f0c38cc8522ebd2",
+          "spend_secret": "a4c6e5105bef7c73c3f7c291a025aa7528775d9bdb712c8cda9da0aa68608a35",
+          "spend_blinding_key": "fa34e967352f65ff30125a1a993ca07577b2c0140f95c65ae08415befff93702",
+          "spend_blinded_nonce": "93e652eb33f3bdd7fc74faecb3d36ab17602cfb953449b829e5da7f824b081b693cc24293e0d8404442a2c7ea7035ebd",
+          "outgoing_nonce": "02b77f1a581315fc61c234c926a4e71e0e55b9d9b97a02ba373f697afde1b1a1bf",
+          "outgoing_secret": "ad196531e406eae673b9c82303eed238cf07ca744e2676d9085099bc937fa99a",
+          "outgoing_blinding_key": "e91bfa18e474b7a5f061ee091438744bd47db0965813bfb3d48176684997f81a",
+          "outgoing_blinded_nonce": "854b52d5be26edc9628987d37c2de2c9a4d4dd8debe0ae7da5511020513a7bdd6e6eae2255f6b92fa23faca2ab76844e"
+        },
+        {
+          "denomination": 9,
+          "tweak": "12209e9d7078694799e8d15cbb12a027",
+          "passes_filter": false,
+          "spend_nonce": "02b34f76eae5f9a9f332b8ac47b6341f1793c3aed66148fc5cebe1df500173c0a1",
+          "spend_secret": "3e61d2be1a2e988455d328a566ab330641320a5203397e027e8ef50d2597e1ca",
+          "spend_blinding_key": "76328f8d1c4d075c8c3c51b6cf467bb66cf4b7a28b7ebe9c6ed1343141cfc258",
+          "spend_blinded_nonce": "865353a0ab5923d4f55b89956020ba0eb43063e37549ef558fcb6d07d4e41d1f67757ea7b4d9ad96715772673d9b1373",
+          "outgoing_nonce": "02876829afddbb2ffd484ac6611a9b9cb5f7db0f732417bf766a63d48f656bd34c",
+          "outgoing_secret": "be81e8b52ea9b1705a241f39990709784161f95a6e15ee49863010642f11b1cf",
+          "outgoing_blinding_key": "98389b275a369a00e0abf11b727223889c906ac2ad8981e3dd34b23fb01a8146",
+          "outgoing_blinded_nonce": "81ccf6319cdf869edc94c1c117d0b30a510753057a1cb80ce51c6b4c41b84424e11dee65c13b2a21c1ff695ddc72a92f"
+        },
+        {
+          "denomination": 27,
+          "tweak": "5c6fa4f8cd486719c5bd46e02eed816d",
+          "passes_filter": false,
+          "spend_nonce": "03a91b990d21e1c1bae5680198bbad762989f9da09e068cad71d50eded60108c8a",
+          "spend_secret": "cbf3ef55032effe2a1aa0ff052dd7eb6e2d787e321809472b736669b5a902e6d",
+          "spend_blinding_key": "da0e19ccfc5527e2e95409bd1086ae8f2602a4ca6d9789cbb3c9f4cf6076680a",
+          "spend_blinded_nonce": "98c7ae608e85ccf4c3f46246615398d3023bc0800156d5ea3b298c4ea0f20a0d59c624f6f1cefbcf230dd69e1145c4a7",
+          "outgoing_nonce": "02fbb400f1d65f99d82c73bd8f0bcc4912737bb5dc746dbe5d061559fbe825c3ab",
+          "outgoing_secret": "129f2b170b99d1494b8f5fc217c514bbb64b92e083b7e72194a77d0c8dfefc06",
+          "outgoing_blinding_key": "7058151869d815b9e5b6eb0b514ec9d154efb89332b6e6c5caa7a0b7513b4104",
+          "outgoing_blinded_nonce": "ade184c5f1002daf380f5b3292b375ba4cd1c5842d81f05f2db97a24f51b29959432972e1b170fffc03e58d67b9fe3e5"
+        },
+        {
+          "denomination": 41,
+          "tweak": "8637c50ccd3f60d82cece0d282748b10",
+          "passes_filter": false,
+          "spend_nonce": "0263a8739dda6b464f56e27e684d5a62242629be6b776a3b19f37ecceee18a6fbc",
+          "spend_secret": "35719f1a7af3f499acc66c2b810256f5eca177c6c501a3622356bed9ca0c3e47",
+          "spend_blinding_key": "0ab421dcadc40b0377e9335d297ec0299d9e66b0ff6138a2a724b511c89d023c",
+          "spend_blinded_nonce": "95847403a63251a1c21c20c83059411028ce32cf63ba86338fcd0e32fec4cdbd44eddef2de18ecdf8842eb41f53eeb21",
+          "outgoing_nonce": "03da7e523db13f4a2a4a9a4862b1a7bbbe45e293b2a75d1503439765730e766bb6",
+          "outgoing_secret": "5d6e7dc6a0f9019c52af6ae4c5ae9f57ea548cf2f446e50ba3a4610e0b998d3d",
+          "outgoing_blinding_key": "2734715d6714e6ebc129bfe85f5d932505f9f5dbbfc96fa5aba3cc48ee81123d",
+          "outgoing_blinded_nonce": "b4e76dcaf0a1bd56c411a00c05ce48c9cfeacd14ccac6b0c24604ca558a65a956f0935c2f806a03a2534b903913326cc"
+        }
+      ],
+      "refunds": [
+        {
+          "ephemeral": "02568cfa83171116340859e608d59a62c91015da19a3191a284297cb1c18598091",
+          "refund_key": "028f220d69a772167fdc0bfc7ddc5d0ff4f031c93405fd0c8fb900511f77623f6d",
+          "refund_secret": "7a1b69895aa7bae5ef9f3f86c62987b78165776cf26ef239314c17c0901e9e02"
+        },
+        {
+          "ephemeral": "038c902063c3ce6771b46817ade6483d3ef3f550e07ac9e59e8f67fe94aff1200a",
+          "refund_key": "024a137bd3733568aae3eeefd18be1c085e499492b60fdcfbcb5602ac77884a3b8",
+          "refund_secret": "05db9305ac77220d32ed53648d5919db82ab7fe97087609a5b34b8203b904100"
+        }
+      ]
+    }
+  ]
+}
