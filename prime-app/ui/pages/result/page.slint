@@ -12,13 +12,13 @@ export component ResultPagePage inherits Rectangle {
         height: parent.height;
         padding-left: Theme.spacing-xl;
         padding-right: Theme.spacing-xl;
-        padding-top: Theme.spacing-xl + UISize.control-center-status-bar-height;
+        padding-top: 12px + UISize.control-center-status-bar-height;
         padding-bottom: Theme.spacing-xl;
-        spacing: Theme.spacing-lg;
+        spacing: 8px;
 
         Heading { text: Callbacks.result-title; }
 
-        Muted { text: Callbacks.result-message; }
+        Muted { text: Callbacks.result-message; font-size: 14px; }
 
         if Callbacks.result-frames.length > 0: HorizontalLayout {
             alignment: center;
@@ -38,6 +38,8 @@ export component ResultPagePage inherits Rectangle {
             wrap: word-wrap;
         }
 
+        if !Callbacks.result-secret: Muted { text: "Authorization response · Complete on your phone."; font-size: 14px; }
+
         Rectangle { vertical-stretch: 1; }
 
         // After an answer the phone usually has another request ready, as it does while pairing.
@@ -54,7 +56,7 @@ export component ResultPagePage inherits Rectangle {
 
         Button {
             width: 100%;
-            text: Callbacks.result-has-next ? "Next" : "Done";
+            text: Callbacks.result-has-next ? "Next" : "Return home";
             size: ControlSize.lg;
             full-width: true;
             clicked => {

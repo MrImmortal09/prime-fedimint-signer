@@ -2,63 +2,108 @@ import SwiftUI
 
 struct HomeView: View {
     @EnvironmentObject private var model: WalletModel
+    @AppStorage("primeConnection") private var connection = "qr"
+    @AppStorage("simulatorAddress") private var simulatorAddress = ""
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack {
+                    Label("FEDIMINT", systemImage: "circle.hexagongrid").font(.caption.weight(.semibold))
+                    Spacer()
+                    Text("Cashu · Unavailable").font(.caption).foregroundStyle(WalletStyle.muted)
+                }.foregroundStyle(WalletStyle.copper)
+                WalletPanel {
+                    Text("Available balance").font(.subheadline).foregroundStyle(WalletStyle.muted)
+                    Text(Amounts.sats(msat: model.balanceMsat))
+                        .font(.system(size: 44, weight: .semibold, design: .rounded)).monospacedDigit()
+                        .minimumScaleFactor(0.5).lineLimit(1)
+                        .accessibilityLabel("Available balance, " + Amounts.sats(msat: model.balanceMsat))
+                    Divider()
+                    Label(federationName, systemImage: "building.2").font(.subheadline)
+                    Label("Paired with Passport Prime", systemImage: "checkmark.shield")
+                        .font(.caption).foregroundStyle(WalletStyle.mint)
+                    Text(connection == "simulator" && !simulatorAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                         ? "Authorization uses the simulator network connection."
+                         : "Authorization uses QR. Prime does not need to stay connected.").font(.caption).foregroundStyle(WalletStyle.muted)
+                }
+                HStack(spacing: 12) {
+                    NavigationLink { SendView() } label: { Label("Send", systemImage: "arrow.up.right") }
+                        .buttonStyle(WalletButtonStyle())
+                    NavigationLink { ReceiveView() } label: { Label("Receive", systemImage: "arrow.down.left") }
+                        .buttonStyle(WalletButtonStyle(secondary: true))
+                }
+                if !model.pendingSends.isEmpty {
+                    Text("Ecash sends").font(.title2.bold())
+                    Text("Stored sends are separate from your available balance. Redemption status is not tracked here.")
+                        .font(.subheadline).foregroundStyle(WalletStyle.muted)
+                    ForEach(model.pendingSends, id: \.id) { send in WalletPanel { PendingSendRow(send: send) } }
+                }
+                HStack {
+                    Text("Recent activity").font(.title2.bold())
+                    Spacer()
+                    NavigationLink("View all") { ActivityView() }.frame(minHeight: 44)
+                }
+                if model.activity.isEmpty {
+                    WalletPanel { WalletNotice(title: "Your first payment starts here", message: "Receive ecash, request a Lightning payment, or make a Bitcoin deposit.", symbol: "arrow.down.left") }
+                } else {
+                    WalletPanel {
+                        ForEach(Array(model.activity.prefix(5).enumerated()), id: \.offset) { _, item in
+                            NavigationLink { ActivityDetail(item: item) } label: { ActivityRow(item: item) }.buttonStyle(.plain)
+                        }
+                    }
+                }
+                Text("Ecash is backed by your federation. Learn about trust and privacy in Settings.")
+                    .font(.footnote).foregroundStyle(WalletStyle.muted)
+            }.padding(24).frame(maxWidth: 650)
+        }.background(WalletStyle.background).navigationTitle("Prime Wallet")
+            .refreshable { await model.refresh() }
+    }
+    private var federationName: String {
+        model.federation?.name ?? "Federation " + (model.federation.map { String($0.id.prefix(8)) } ?? "")
+    }
+}
 
+struct ActivityRow: View {
+    let item: Activity
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: item.module == "lnv2" ? "bolt" : item.module == "walletv2" ? "bitcoinsign.circle" : "circle.hexagongrid")
+                .font(.title3).foregroundStyle(WalletStyle.copper).frame(width: 40, height: 44).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.title).font(.subheadline.weight(.medium))
+                Text(Date(timeIntervalSince1970: TimeInterval(item.timeUnix)), style: .relative)
+                    .font(.caption).foregroundStyle(WalletStyle.muted)
+            }
+            Spacer()
+            Image(systemName: "chevron.right").font(.caption).foregroundStyle(WalletStyle.muted).accessibilityHidden(true)
+        }.frame(minHeight: 48)
+    }
+}
+
+struct ActivityView: View {
+    @EnvironmentObject private var model: WalletModel
     var body: some View {
         List {
-            Section {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(Amounts.sats(msat: model.balanceMsat))
-                        .font(.largeTitle.bold())
-                    Text(federationName)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 8)
+            if model.activity.isEmpty { Text("No activity yet").foregroundStyle(WalletStyle.muted) }
+            ForEach(Array(model.activity.enumerated()), id: \.offset) { _, item in
+                NavigationLink { ActivityDetail(item: item) } label: { ActivityRow(item: item) }
             }
-            Section {
-                NavigationLink {
-                    ReceiveView()
-                } label: {
-                    Label("Receive", systemImage: "arrow.down.circle")
-                }
-                NavigationLink {
-                    SendView()
-                } label: {
-                    Label("Send", systemImage: "arrow.up.circle")
-                }
-            }
-            if !model.pendingSends.isEmpty {
-                Section {
-                    ForEach(model.pendingSends, id: \.id) { send in
-                        PendingSendRow(send: send)
-                    }
-                } header: {
-                    Text("Ecash sent")
-                } footer: {
-                    Text("Take back ecash the receiver never redeemed.")
-                }
-            }
-            Section("Activity") {
-                if model.activity.isEmpty {
-                    Text("Nothing yet").foregroundStyle(.secondary)
-                }
-                ForEach(Array(model.activity.enumerated()), id: \.offset) { _, item in
-                    HStack {
-                        Text(item.title)
-                        Spacer()
-                        Text(Date(timeIntervalSince1970: TimeInterval(item.timeUnix)), style: .relative)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .navigationTitle("Prime Wallet")
-        .refreshable { await model.refresh() }
+        }.scrollContentBackground(.hidden).background(WalletStyle.background).navigationTitle("Activity")
     }
+}
 
-    private var federationName: String {
-        guard let federation = model.federation else { return "" }
-        return federation.name ?? "Federation \(federation.id.prefix(8))"
+struct ActivityDetail: View {
+    let item: Activity
+    var body: some View {
+        Form {
+            Section("Operation") {
+                Text(item.title).font(.headline)
+                LabeledContent("Method", value: item.module == "lnv2" ? "Lightning" : item.module == "walletv2" ? "On-chain Bitcoin" : "Ecash")
+                Text(Date(timeIntervalSince1970: TimeInterval(item.timeUnix)), style: .date)
+                Text(Date(timeIntervalSince1970: TimeInterval(item.timeUnix)), style: .time)
+            }
+            Section { Text("The wallet history currently provides the operation title, method, and time. Amount, fees, and final status are not available in this record.").font(.subheadline).foregroundStyle(WalletStyle.muted) }
+        }.navigationTitle("Activity details").scrollContentBackground(.hidden).background(WalletStyle.background)
     }
 }
 
@@ -66,6 +111,7 @@ struct PendingSendRow: View {
     @EnvironmentObject private var model: WalletModel
     let send: PendingSend
     @State private var showingToken = false
+    @State private var forgetting = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -94,11 +140,16 @@ struct PendingSendRow: View {
                 }
                 Spacer()
                 Button("Forget", role: .destructive) {
-                    Task { await model.run("Forgetting the send") { try await $0.forgetSend(id: send.id) } }
+                    forgetting = true
                 }
             }
             .buttonStyle(.borderless)
         }
+        .confirmationDialog("Forget this send?", isPresented: $forgetting, titleVisibility: .visible) {
+            Button("Forget tracking record", role: .destructive) {
+                Task { await model.run("Forgetting the send") { try await $0.forgetSend(id: send.id) } }
+            }
+        } message: { Text("This removes the record from your phone. It does not reclaim ecash or return funds.") }
         .sheet(isPresented: $showingToken) {
             NavigationStack {
                 ScrollView {

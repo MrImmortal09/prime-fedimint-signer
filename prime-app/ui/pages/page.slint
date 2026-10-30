@@ -7,76 +7,33 @@ import { Heading, Muted } from "../widgets.slint";
 
 export component MainPagePage inherits Rectangle {
     background: Theme.palette-background;
-
     VerticalLayout {
-        width: parent.width;
-        height: parent.height;
-        padding-left: Theme.spacing-xl;
-        padding-right: Theme.spacing-xl;
-        padding-top: Theme.spacing-xl + UISize.control-center-status-bar-height;
-        padding-bottom: Theme.spacing-xl;
-        spacing: Theme.spacing-lg;
-
-        Heading { text: "Fedimint Signer"; }
-
-        Muted {
-            text: Callbacks.federations.length == 0
-                ? "Scan a pairing request from your phone wallet to add a federation."
-                : "Your federations";
+        padding: 24px;
+        padding-top: 24px + UISize.control-center-status-bar-height;
+        spacing: 16px;
+        Text { text: "PRIME / FEDIMINT"; color: Theme.palette-primary; font-family: Theme.font-primary; font-size: 14px; font-weight: 600; }
+        Text { text: "Ecash"; color: Theme.palette-foreground; font-family: Theme.font-primary; font-size: 48px; font-weight: 700; }
+        Muted { text: "Your keys. Your permission."; horizontal-alignment: left; }
+        Rectangle {
+            background: Theme.palette-card; border-radius: 20px;
+            VerticalLayout {
+                padding: 20px; spacing: 12px;
+                Text { text: Callbacks.federations.length > 0 ? "READY TO REVIEW" : "LET’S GET CONNECTED"; color: Theme.palette-primary; font-family: Theme.font-primary; font-size: 14px; font-weight: 600; }
+                Muted { horizontal-alignment: left; text: Callbacks.federations.length > 0 ? "Scan a request from your phone. Review the details here before you authorize." : "Join a federation in Prime Wallet, then scan the pairing request shown on your phone."; }
+            }
         }
-
         Flickable {
             vertical-stretch: 1;
             VerticalLayout {
-                width: parent.width;
-                alignment: start;
-                spacing: Theme.spacing-md;
-                for federation in Callbacks.federations: Card {
-                    width: 100%;
-                    title: federation.name;
-                    body: federation.detail;
-                }
+                width: parent.width; alignment: start; spacing: 12px;
+                for federation in Callbacks.federations: Card { width: 100%; title: federation.name; body: federation.detail; }
+                if Callbacks.ledger-note != "": Muted { text: Callbacks.ledger-note; font-size: 14px; }
+                if Callbacks.notice != "": Muted { text: Callbacks.notice; font-size: 14px; }
             }
         }
-
-        if Callbacks.ledger-note != "": Muted {
-            text: Callbacks.ledger-note;
-            font-size: Theme.font-size-label;
-        }
-
-        if Callbacks.notice != "": Muted {
-            text: Callbacks.notice;
-            font-size: Theme.font-size-label;
-        }
-
-        if Callbacks.status != "": Text {
-            text: Callbacks.status;
-            color: Theme.palette-danger;
-            font-family: Theme.font-primary;
-            font-size: Theme.font-size-label;
-            horizontal-alignment: center;
-            wrap: word-wrap;
-        }
-
-        Button {
-            width: 100%;
-            text: "Scan request";
-            size: ControlSize.lg;
-            full-width: true;
-            clicked => {
-                Callbacks.scan-request();
-            }
-        }
-
-        Button {
-            width: 100%;
-            text: "Settings";
-            variant: ButtonVariant.secondary;
-            size: ControlSize.md;
-            full-width: true;
-            clicked => {
-                Navigate.settings-page({ });
-            }
-        }
+        if Callbacks.status != "": Text { text: Callbacks.status; color: Theme.palette-danger; font-family: Theme.font-primary; font-size: 16px; wrap: word-wrap; }
+        Button { text: "Scan Request"; size: ControlSize.lg; full-width: true; clicked => { Callbacks.scan-request(); } }
+        Button { text: "Federations & Settings"; variant: ButtonVariant.secondary; full-width: true; clicked => { Navigate.settings-page({ }); } }
+        Muted { text: "QR connection · No Bluetooth required"; font-size: 14px; }
     }
 }

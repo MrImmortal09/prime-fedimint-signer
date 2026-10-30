@@ -149,7 +149,7 @@ How the app works:
   bridge as well.
 - **Every decision is the service's.** The app passes the request bytes to `fps-signer` and shows the
   review it returns. Nothing on screen comes from labels the phone supplied.
-- **Gates.** Approve or Reject on the review screen. Spends above 100,000 sats also need the device PIN,
+- **Gates.** Slide to approve or tap Reject on the review screen. Spends above 100,000 sats also need the device PIN,
   which the system's lock screen asks for.
 - **Answers out.** An animated `fps-response` code for a scanned request, or the bridge. A
   `ShowOnDevice` release shows the token as one QR code for the receiver and never sends it to the
@@ -294,7 +294,7 @@ CI gains a job that clones fedimint, applies the series and runs these tests.
 
 The plan's Stage 2 ends with the simulated Prime signing every spend of a fedimint wallet. This phase
 does that with the real KeyOS app: the watch-only wallet of Phase 2A reaches the app in the
-simulator over the file bridge, and every review is decided by tapping the simulator's screen.
+simulator over the file bridge, and every review is decided by an approval slide or a Reject tap on the simulator's screen.
 
 ### Delivered
 
@@ -338,8 +338,8 @@ withdrawal test and skips the simulator test, which needs the Foundation SDK.
   withdrawal test took three minutes. With the switch on, it takes eight seconds, and the whole
   wallet suite about thirteen.
 - **A screen's log line comes before the screen.** The hand waits for the button colours of the
-  screen it expects, grey Reject beside yellow Approve or one yellow Done, and for two identical
-  screenshots, before it taps. After the tap it waits for the screen to change, so it never acts on
+  screen it expects, a copper approval slider above a full-width charcoal Reject button, or a full-width copper Done button, and for two identical
+  screenshots, before it acts. After the approval swipe or button tap it waits for the screen to change, so it never acts on
   a stale screenshot.
 
 ### Still open
@@ -413,3 +413,24 @@ closed port, and a bare host getting the default port.
 - While a request waits on the simulator, the phone's busy note names the operation, not that
   someone must approve on Prime.
 - The Android app has the switch in its Kotlin bindings and no screen for it yet.
+
+## Wallet UI refinement
+
+- Shared design tokens for iOS and KeyOS, with native system typography and device light/dark themes.
+- Prime reviews show device-decoded details and warnings above a deliberate slide-to-approve control; rejection remains a separate button. Canceling the system PIN dialog or an authorization failure re-arms the slider.
+- Full-width result QR codes preserve scanner module size. Scan-next navigation, federation forgetting, QR density selection, and the animated iPhone scanner remain supported.
+- The simulator hand dispatches on approval/rejection decisions and detects review/result screens using samples inside both ends of the bottom button. RGB-only accent checks reject an incorrect blue theme.
+- iPhone screens use existing wallet data, identify unsupported features, and distinguish authorization, submitted payments, and redeemed ecash.
+
+### Verification
+
+- 144 host tests, including seven screen-detection regressions with standard-SDK captures.
+- Before integrating the network transport additions, the golden simulator scenario passed 19 checks and four restart checks.
+- `scripts/sim-wallet-e2e.sh`: passed over both the file bridge and network link, with 13 screens each, including approval swipes, rejection, withdrawal, and ecash result QR decoding.
+- Simulator runs use the corrected RGBA capture tool documented in `patches/keyos/README.md`. The RGB-only detector rejects swapped-blue output from the unpatched tool.
+- Swift syntax and Slint compilation/layout checks pass. These do not replace an iOS build or physical camera tests.
+
+### Verification still needed
+
+- An iOS build and device checks with Xcode, including accessibility, Dynamic Type, and landscape.
+- The physical iPhone-to-Prime camera loop and hardware color parity.

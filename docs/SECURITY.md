@@ -93,7 +93,7 @@ it.
 ## On the device
 
 - **The review is the device's own.** The app shows what `fps-signer` computed from the request's
-  bytes, and only that. A request that needs approval waits for a tap on Approve or Reject.
+  bytes, and only that. A request that needs approval waits for a deliberate slide to approve or a tap on Reject.
 - **The PIN.** Spends above the policy threshold, 100,000 sats by default, also need the device PIN,
   which the system's lock screen asks for. The app never sees the PIN.
 - **Tokens shown on the device stay there.** A `ShowOnDevice` release answers the phone with the

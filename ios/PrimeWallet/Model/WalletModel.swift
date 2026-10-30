@@ -19,6 +19,7 @@ final class WalletModel: ObservableObject {
     /// Opens the wallet kept in the app's Application Support folder.
     func open() async {
         guard wallet == nil else { return }
+        openError = nil
         do {
             let directory = try FileManager.default
                 .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
@@ -57,7 +58,7 @@ final class WalletModel: ObservableObject {
     /// Runs one wallet call behind a progress note, reports a failure, and refreshes after.
     @discardableResult
     func run<T>(_ note: String, _ call: (Wallet) async throws -> T) async -> T? {
-        guard let wallet else { return nil }
+        guard let wallet, busy == nil else { return nil }
         busy = note
         defer { busy = nil }
         do {

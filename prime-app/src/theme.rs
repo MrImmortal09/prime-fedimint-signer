@@ -7,8 +7,7 @@
 // `theme` in app-config.toml and compiled to Rust by the Foundation CLI. Use
 // `foundation theme` to edit it visually.
 //
-// The generated app theme inherits the built-in theme without overriding its
-// colors, typography, spacing, or component styles.
+// Both color schemes and component-specific foregrounds come from resources/theme.json.
 
 slint_keyos_platform::settings::use_api!(
     slint_keyos_platform::settings,
@@ -51,7 +50,4 @@ fn apply_system_theme(
     // Apply the app theme to every component binding (palette, button styles,
     // sizes, named text-role font sizes).
     foundation_themes::apply_theme!(ui, app_theme::theme(), scheme);
-
-    // Optional app-specific runtime overrides belong here, after the inherited
-    // theme has been applied.
 }

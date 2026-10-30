@@ -11,6 +11,7 @@ struct PrimeExchangeView: View {
     @State private var frames: [String] = []
     @State private var frame = 0
     @State private var scanning = false
+    @State private var paused = false
     @State private var progress = 0.0
     @State private var problem: String?
     @State private var scanner = AnswerScanner()
@@ -28,14 +29,16 @@ struct PrimeExchangeView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                if scanning {
-                    answer
-                } else {
-                    request
-                }
-            }
-            .padding()
+            ScrollView {
+                VStack(spacing: 24) {
+                    HStack {
+                        Text(scanning ? "STEP 2 OF 2" : "STEP 1 OF 2").font(.caption.weight(.semibold)).tracking(2)
+                        Spacer()
+                        Label("QR connection", systemImage: "qrcode").font(.caption)
+                    }.foregroundStyle(WalletStyle.copper)
+                    if scanning { answer } else { request }
+                }.padding(24).frame(maxWidth: 600)
+            }.background(WalletStyle.background)
             .navigationTitle("Passport Prime")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -47,7 +50,7 @@ struct PrimeExchangeView: View {
         .onAppear { reframe() }
         .onChange(of: densityName) { _ in reframe() }
         .onReceive(ticker) { _ in
-            if !scanning { frame += 1 }
+            if !scanning && !paused { frame += 1 }
         }
     }
 
@@ -57,15 +60,21 @@ struct PrimeExchangeView: View {
     }
 
     @ViewBuilder private var request: some View {
-        Text("Scan this with Passport Prime").font(.headline)
+        Text("Review on your Passport").font(.largeTitle.bold()).frame(maxWidth: .infinity, alignment: .leading)
         if frames.isEmpty {
             ProgressView()
         } else {
             QRCodeView(text: frames[frame % frames.count])
+                .padding(16).background(.white, in: RoundedRectangle(cornerRadius: 20))
                 .frame(maxWidth: 340)
+                .accessibilityLabel("Animated authorization request for Passport Prime")
             Text(frames.count > 1 ? "Part \(frame % frames.count + 1) of \(frames.count)" : " ")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WalletStyle.muted)
+            if frames.count > 1 {
+                Button(paused ? "Resume QR animation" : "Pause QR animation") { paused.toggle() }
+                    .font(.subheadline).frame(minHeight: 44)
+            }
         }
         Picker("Code size", selection: $densityName) {
             Text("Small").tag("low")
@@ -75,16 +84,20 @@ struct PrimeExchangeView: View {
         .pickerStyle(.segmented)
         Text("Larger codes mean fewer parts. Choose smaller ones if Prime cannot read them.")
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(WalletStyle.muted)
             .multilineTextAlignment(.center)
-        Text("Check the details on Prime and approve there. Then scan the answer Prime shows.")
+        Text("On Prime, open Fedimint and tap Scan Request. Check the amount, destination, fees, and warnings. Slide to approve only if everything matches.")
             .multilineTextAlignment(.center)
             .font(.callout)
-        Button("Scan Prime's answer") { scanning = true }
-            .buttonStyle(.borderedProminent)
+        Button("Scan Passport response") { scanning = true }
+            .buttonStyle(WalletButtonStyle())
+        Text("Keep this screen open while Prime scans. If scanning stalls, keep both screens steady and adjust the distance.")
+            .font(.footnote).foregroundStyle(WalletStyle.muted)
     }
 
     @ViewBuilder private var answer: some View {
+        Text("Bring the answer home").font(.largeTitle.bold()).frame(maxWidth: .infinity, alignment: .leading)
+        Text("Scan the response shown on Prime. Your phone will verify it and continue the operation.").foregroundStyle(WalletStyle.muted)
         if Scanner.isAvailable {
             ScannerView { code in take(code) }
                 .frame(height: 380)
@@ -93,11 +106,13 @@ struct PrimeExchangeView: View {
             Text("This device cannot scan with its camera.")
                 .multilineTextAlignment(.center)
         }
-        ProgressView(value: progress)
+        ProgressView(value: progress).tint(WalletStyle.copper)
+        Text(progress > 0 ? "Reading response · \(Int(progress * 100))%" : "Waiting for the response QR")
+            .font(.subheadline).foregroundStyle(WalletStyle.muted)
         if let problem {
             Text(problem).font(.caption).foregroundStyle(.red)
         }
-        Button("Show the request again") { scanning = false }
+        Button("Show request again") { scanning = false }.buttonStyle(WalletButtonStyle(secondary: true))
     }
 
     private func take(_ code: String) {

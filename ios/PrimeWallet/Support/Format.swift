@@ -17,7 +17,8 @@ enum Amounts {
     /// Whole sats typed by the person, as millisatoshis.
     static func msat(fromSats text: String) -> UInt64? {
         guard let sats = UInt64(text.trimmingCharacters(in: .whitespaces)), sats > 0 else { return nil }
-        return sats * 1000
+        let (msat, overflow) = sats.multipliedReportingOverflow(by: 1000)
+        return overflow ? nil : msat
     }
 }
 

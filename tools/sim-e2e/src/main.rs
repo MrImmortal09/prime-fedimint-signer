@@ -32,7 +32,7 @@ use fps_protocol::{
 use fps_signer_core::{
     analyze, plan_release, AnalysisOptions, EmptyLedger, Federation, FederationKeys,
 };
-use fps_simdrive::{self as screen, Screen, APPROVE, DONE, REJECT};
+use fps_simdrive::{self as screen, Screen, DONE, REJECT};
 use fps_transport::bridge::Bridge;
 use scenario::{Case, Scenario, ScenarioLedger};
 
@@ -152,10 +152,10 @@ impl Driver {
         self.screen.shot(&format!("{name}-review"))?;
         self.screen.clear_logs()?;
         match choice {
-            Choice::Approve => self.screen.tap(APPROVE)?,
+            Choice::Approve => self.screen.approve()?,
             Choice::Reject => self.screen.tap(REJECT)?,
             Choice::ApproveWithPin => {
-                self.screen.tap(APPROVE)?;
+                self.screen.approve()?;
                 self.screen.wait_for_log("gui_app_lock_screen: Navigated")?;
                 self.screen.wait_for_new_screen(&review)?;
                 self.screen.shot(&format!("{name}-pin"))?;
@@ -483,7 +483,9 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let command = args.next().unwrap_or_default();
     let mut shots = PathBuf::from("target/sim-e2e");
-    let mut drive = PathBuf::from("foundation-passport-drive");
+    let mut drive = std::env::var_os("FPS_SIM_DRIVE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("foundation-passport-drive"));
     let mut pin = "123456".to_owned();
     while let Some(arg) = args.next() {
         match (arg.as_str(), args.next()) {

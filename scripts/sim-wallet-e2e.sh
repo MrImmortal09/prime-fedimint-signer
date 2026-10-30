@@ -3,7 +3,7 @@
 #
 # Starts the app with `foundation sim` and runs the wallet's simulator test
 # (wallet/fps-wallet/tests/simulator.rs): a federation in this process, the app signing, and every
-# review decided by tapping the simulator screen. The scenario runs twice, each on a fresh app:
+# review decided by an approval swipe or a Reject tap. The scenario runs twice, each on a fresh app:
 # over the file bridge, then over the network link, the stand-in for QuantumLink. Then stops the
 # simulator and puts the developer's own simulator seed back. Needs the Foundation SDK (see
 # scripts/sdk-shell.sh) and the fedimint checkout (scripts/fedimint-checkout.sh). Screenshots and

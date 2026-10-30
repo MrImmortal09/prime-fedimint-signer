@@ -17,9 +17,11 @@ struct CodeField: View {
                 text = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             }
             .buttonStyle(.borderless)
+            .frame(minHeight: 44)
             Spacer()
             if Scanner.isAvailable {
                 Button("Scan") { scanning = true }
+                    .frame(minHeight: 44)
                     .buttonStyle(.borderless)
             }
         }
@@ -38,7 +40,9 @@ struct CopyableCode: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             QRCodeView(text: text)
+                .padding(16).background(.white, in: RoundedRectangle(cornerRadius: 20))
                 .frame(maxWidth: 320)
+                .accessibilityLabel("QR code for " + title)
                 .frame(maxWidth: .infinity)
             Text(text)
                 .font(.caption.monospaced())
@@ -63,14 +67,14 @@ struct BusyOverlay: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.25).ignoresSafeArea()
+            Color.black.opacity(0.7).ignoresSafeArea()
             VStack(spacing: 12) {
                 ProgressView()
                 Text(note)
                     .multilineTextAlignment(.center)
             }
             .padding(24)
-            .background(.regularMaterial)
+            .background(WalletStyle.surface)
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .padding(32)
         }

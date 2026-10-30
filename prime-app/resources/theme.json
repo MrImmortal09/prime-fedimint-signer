@@ -1,5 +1,59 @@
 {
   "id": "app_theme",
-  "name": "Fedimint Signer",
-  "parent": "base_theme"
+  "name": "Prime Ecash",
+  "parent": "base_theme",
+  "tokens": {
+    "colors": {
+      "light": {
+        "primary": "#955633",
+        "primary-pressed": "#774329",
+        "secondary": "#E8E5DF",
+        "danger": "#A62E2E",
+        "surface": "#FFFFFF",
+        "background": "#F7F5F0",
+        "text": "#1C1E20",
+        "text-muted": "#5E6268"
+      },
+      "dark": {
+        "primary": "#D69A78",
+        "primary-pressed": "#BC8060",
+        "secondary": "#303336",
+        "danger": "#EF7272",
+        "surface": "#1C1E20",
+        "background": "#101113",
+        "text": "#F7F5F0",
+        "text-muted": "#A4A7AC"
+      }
+    },
+    "radius": {
+      "sm": 12,
+      "md": 20,
+      "lg": 24
+    },
+    "controlRadius": {
+      "sm": 12,
+      "md": 16,
+      "lg": 20
+    }
+  },
+  "components": {
+    "button": {
+      "variantProps": {
+        "primary": {
+          "normal": {
+            "foreground": "color.background"
+          },
+          "focused": {
+            "foreground": "color.background"
+          },
+          "pressed": {
+            "foreground": "color.background"
+          },
+          "disabled": {
+            "foreground": "color.background"
+          }
+        }
+      }
+    }
+  }
 }
