@@ -1,4 +1,4 @@
-import { Theme, UISize, ControlSize } from "@ui/theme.slint";
+import { Theme, UISize, ControlSize, ButtonVariant } from "@ui/theme.slint";
 import { Button } from "@ui/button.slint";
 import { Switch } from "@ui/switch.slint";
 import { Navigate } from "../../gen/navigate.slint";
@@ -54,6 +54,32 @@ export component SettingsPagePage inherits Rectangle {
             font-size: Theme.font-size-label;
         }
 
+        if Callbacks.federations.length > 0: Muted {
+            text: "Forget a federation to stop signing for it. Tap twice. The record of notes released for it stays.";
+            font-size: Theme.font-size-label;
+        }
+
+        for federation[index] in Callbacks.federations: HorizontalLayout {
+            spacing: Theme.spacing-md;
+            Text {
+                text: federation.name;
+                color: Theme.palette-foreground;
+                font-family: Theme.font-primary;
+                font-size: Theme.font-size-subtitle;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+                overflow: elide;
+            }
+            Button {
+                text: Callbacks.forget-armed == index ? "Confirm" : "Forget";
+                variant: ButtonVariant.secondary;
+                size: ControlSize.md;
+                clicked => {
+                    Callbacks.forget-federation(index);
+                }
+            }
+        }
+
         Rectangle { vertical-stretch: 1; }
 
         Button {
@@ -62,6 +88,7 @@ export component SettingsPagePage inherits Rectangle {
             size: ControlSize.md;
             full-width: true;
             clicked => {
+                Callbacks.forget-armed = -1;
                 Navigate.backward();
             }
         }

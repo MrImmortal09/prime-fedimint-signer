@@ -3,8 +3,9 @@ import Foundation
 /// A request waiting for Prime while the exchange screen is up.
 struct PendingExchange: Identifiable {
     let id = UUID()
-    /// The animated QR codes that carry the request.
-    let frames: [String]
+    /// The request bytes; the exchange screen turns them into animated QR codes at the size the
+    /// person chose.
+    let request: Data
 }
 
 /// Carries the wallet's requests to Passport Prime as animated QR codes, and its answers back.
@@ -19,10 +20,9 @@ final class PrimeBridge: ObservableObject {
         if continuation != nil {
             throw LinkError.Failed(reason: "another exchange with Prime is in progress")
         }
-        let frames = requestFrames(request: request)
         return try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
-            self.pending = PendingExchange(frames: frames)
+            self.pending = PendingExchange(request: request)
         }
     }
 

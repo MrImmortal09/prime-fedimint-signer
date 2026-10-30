@@ -1,4 +1,4 @@
-import { Theme, UISize, ControlSize } from "@ui/theme.slint";
+import { Theme, UISize, ControlSize, ButtonVariant } from "@ui/theme.slint";
 import { Button } from "@ui/button.slint";
 import { Callbacks } from "../../callbacks.slint";
 import { AnimatedQr, Heading, Muted } from "../../widgets.slint";
@@ -39,6 +39,18 @@ export component ResultPagePage inherits Rectangle {
         }
 
         Rectangle { vertical-stretch: 1; }
+
+        // After an answer the phone usually has another request ready, as it does while pairing.
+        if !Callbacks.result-has-next && !Callbacks.result-secret: Button {
+            width: 100%;
+            text: "Scan next request";
+            variant: ButtonVariant.secondary;
+            size: ControlSize.md;
+            full-width: true;
+            clicked => {
+                Callbacks.scan-next();
+            }
+        }
 
         Button {
             width: 100%;

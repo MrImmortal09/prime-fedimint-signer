@@ -281,13 +281,50 @@ fn next_screen(ui: &AppWindow, app: &Rc<RefCell<App>>) {
             view::show_screen(ui, &screen);
             log::info!("result on screen: {}", screen.title);
         }
-        None => {
-            // Leaving the screen drops the token from the UI.
-            ui.global::<Callbacks>()
-                .set_result_frames(ModelRc::default());
-            app.borrow_mut().showing_result = false;
-            navigate_home(ui);
+        None => leave_results(ui, app),
+    }
+}
+
+/// Leaves the result screens for the home screen.
+fn leave_results(ui: &AppWindow, app: &Rc<RefCell<App>>) {
+    // Leaving the screen drops the token from the UI.
+    ui.global::<Callbacks>()
+        .set_result_frames(ModelRc::default());
+    let mut app = app.borrow_mut();
+    app.screens.clear();
+    app.showing_result = false;
+    drop(app);
+    navigate_home(ui);
+}
+
+/// Leaves the result and opens the scanner for the request the phone shows next.
+fn scan_next(ui: &AppWindow, app: &Rc<RefCell<App>>) {
+    leave_results(ui, app);
+    scan_request(ui, app);
+}
+
+/// Forgets the federation at `index` in the home list, on the second tap of its button.
+fn forget_federation(ui: &AppWindow, app: &Rc<RefCell<App>>, index: i32) {
+    let callbacks = ui.global::<Callbacks>();
+    if callbacks.get_forget_armed() != index {
+        callbacks.set_forget_armed(index);
+        return;
+    }
+    callbacks.set_forget_armed(-1);
+    let federation = usize::try_from(index)
+        .ok()
+        .and_then(|index| app.borrow().signer.federations().get(index).map(|f| f.federation));
+    let Some(federation) = federation else {
+        return;
+    };
+    let forgotten = app.borrow_mut().signer.forget_federation(&federation);
+    match forgotten {
+        Ok(()) => {
+            view::refresh_home(ui, &app.borrow().signer);
+            set_notice(ui, "Forgot the federation");
+            log::info!("forgot federation {}", federation.to_hex());
         }
+        Err(error) => set_status(ui, &format!("Could not forget the federation: {error}")),
     }
 }
 
@@ -392,7 +429,16 @@ fn app_main(cx: AppContext, ui: AppWindow) {
     callbacks.on_approve(when_open(&ui, &slot, approve));
     callbacks.on_reject(when_open(&ui, &slot, reject));
     callbacks.on_next(when_open(&ui, &slot, next_screen));
+    callbacks.on_scan_next(when_open(&ui, &slot, scan_next));
     callbacks.on_settings_changed(when_open(&ui, &slot, settings_changed));
+    callbacks.on_forget_federation({
+        let (ui, slot) = (ui.as_weak(), slot.clone());
+        move |index| {
+            if let (Some(ui), Some(app)) = (ui.upgrade(), slot.get()) {
+                forget_federation(&ui, app, index);
+            }
+        }
+    });
 
     // The signer opens once the window is on screen. The first read of the app seed shows the
     // system's consent prompt, and KeyOS presents it only over a foreground window, which a window

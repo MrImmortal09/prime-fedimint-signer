@@ -6,6 +6,9 @@ import SwiftUI
 struct PrimeExchangeView: View {
     let exchange: PendingExchange
     @EnvironmentObject private var bridge: PrimeBridge
+    /// How much each code carries: "low", "medium" or "high". Denser codes mean fewer parts.
+    @AppStorage("qrDensity") private var densityName = "medium"
+    @State private var frames: [String] = []
     @State private var frame = 0
     @State private var scanning = false
     @State private var progress = 0.0
@@ -14,6 +17,14 @@ struct PrimeExchangeView: View {
     /// The camera keeps reporting codes while the screen closes; the answer is taken once.
     @State private var done = false
     private let ticker = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
+
+    private var density: QrDensity {
+        switch densityName {
+        case "low": return .low
+        case "high": return .high
+        default: return .medium
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -33,18 +44,39 @@ struct PrimeExchangeView: View {
                 }
             }
         }
+        .onAppear { reframe() }
+        .onChange(of: densityName) { _ in reframe() }
         .onReceive(ticker) { _ in
             if !scanning { frame += 1 }
         }
     }
 
+    private func reframe() {
+        frames = requestFrames(request: exchange.request, density: density)
+        frame = 0
+    }
+
     @ViewBuilder private var request: some View {
         Text("Scan this with Passport Prime").font(.headline)
-        QRCodeView(text: exchange.frames[frame % exchange.frames.count])
-            .frame(maxWidth: 340)
-        Text(exchange.frames.count > 1 ? "Part \(frame % exchange.frames.count + 1) of \(exchange.frames.count)" : " ")
+        if frames.isEmpty {
+            ProgressView()
+        } else {
+            QRCodeView(text: frames[frame % frames.count])
+                .frame(maxWidth: 340)
+            Text(frames.count > 1 ? "Part \(frame % frames.count + 1) of \(frames.count)" : " ")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        Picker("Code size", selection: $densityName) {
+            Text("Small").tag("low")
+            Text("Medium").tag("medium")
+            Text("Large").tag("high")
+        }
+        .pickerStyle(.segmented)
+        Text("Larger codes mean fewer parts. Choose smaller ones if Prime cannot read them.")
             .font(.caption)
             .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
         Text("Check the details on Prime and approve there. Then scan the answer Prime shows.")
             .multilineTextAlignment(.center)
             .font(.callout)

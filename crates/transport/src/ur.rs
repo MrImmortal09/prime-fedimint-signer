@@ -14,8 +14,8 @@ use foundation_ur::{Decoder, Encoder, UR};
 use fps_protocol::MAX_MESSAGE_SIZE;
 pub use fps_protocol::{UR_TYPE_REQUEST, UR_TYPE_RESPONSE};
 
-/// Characters per QR code. Small codes scan quickly from the 480 px screen; a typical signing
-/// request still fits in a dozen parts.
+/// Characters per QR code shown on Prime's 480 px screen: small codes scan quickly from it. The
+/// phone chooses its own size with [`encode_with`].
 pub const MAX_PART_CHARS: usize = 300;
 
 /// The sequence number fragments are sized for. Only the pure parts are shown, and even the
@@ -55,13 +55,21 @@ impl std::fmt::Display for UrError {
 
 impl std::error::Error for UrError {}
 
-/// The parts that carry `message` as `ur_type`, to show one after another in a loop.
+/// The parts that carry `message` as `ur_type`, sized for Prime's screen, to show one after
+/// another in a loop.
 pub fn encode(ur_type: &str, message: &[u8]) -> Vec<String> {
+    encode_with(ur_type, message, MAX_PART_CHARS)
+}
+
+/// The parts that carry `message` as `ur_type`, each at most `max_part_chars` characters, to show
+/// one after another in a loop. A phone's screen can show denser codes than Prime's, and so fewer
+/// of them.
+pub fn encode_with(ur_type: &str, message: &[u8], max_part_chars: usize) -> Vec<String> {
     if message.is_empty() {
         // The fountain encoder needs at least one byte; an empty message is one single-part code.
         return vec![foundation_ur::to_string(ur_type, message).to_ascii_uppercase()];
     }
-    let fragment_len = foundation_ur::max_fragment_len(ur_type, MAX_SEQUENCE, MAX_PART_CHARS);
+    let fragment_len = foundation_ur::max_fragment_len(ur_type, MAX_SEQUENCE, max_part_chars);
     let mut encoder = Encoder::new();
     encoder.start(ur_type, message, fragment_len);
     (0..encoder.sequence_count())
