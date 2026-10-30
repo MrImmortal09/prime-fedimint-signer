@@ -7,7 +7,7 @@ struct PrimeExchangeView: View {
     let exchange: PendingExchange
     @EnvironmentObject private var bridge: PrimeBridge
     /// How much each code carries: "low", "medium" or "high". Denser codes mean fewer parts.
-    @AppStorage("qrDensity") private var densityName = "medium"
+    @AppStorage("qrDensity") private var densityName = "low"
     @State private var frames: [String] = []
     @State private var frame = 0
     @State private var scanning = false
@@ -17,7 +17,7 @@ struct PrimeExchangeView: View {
     @State private var scanner = AnswerScanner()
     /// The camera keeps reporting codes while the screen closes; the answer is taken once.
     @State private var done = false
-    private let ticker = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
+    private let ticker = Timer.publish(every: 0.8, on: .main, in: .common).autoconnect()
 
     private var density: QrDensity {
         switch densityName {
@@ -50,7 +50,7 @@ struct PrimeExchangeView: View {
         .onAppear { reframe() }
         .onChange(of: densityName) { _ in reframe() }
         .onReceive(ticker) { _ in
-            if !scanning && !paused { frame += 1 }
+            if !scanning && !paused && !frames.isEmpty { frame = (frame + 1) % frames.count }
         }
     }
 
@@ -63,7 +63,7 @@ struct PrimeExchangeView: View {
         if frames.isEmpty {
             ProgressView()
         } else {
-            QRCodeView(text: frames[frame % frames.count])
+            QRCodeView(text: frames[frame % frames.count], correctionLevel: "M")
                 .padding(16).background(.white, in: RoundedRectangle(cornerRadius: 20))
                 .frame(maxWidth: 340)
                 .accessibilityLabel("Animated authorization request for Passport Prime")
@@ -75,6 +75,21 @@ struct PrimeExchangeView: View {
                     Button(paused ? "Resume" : "Pause") { paused.toggle() }
                         .font(.subheadline).frame(minWidth: 60, minHeight: 44)
                         .accessibilityLabel(paused ? "Resume QR animation" : "Pause QR animation")
+                }
+            }
+            if paused && frames.count > 1 {
+                HStack {
+                    Button {
+                        frame = (frame + frames.count - 1) % frames.count
+                    } label: {
+                        Label("Previous", systemImage: "chevron.left").frame(minHeight: 44)
+                    }
+                    Spacer()
+                    Button {
+                        frame = (frame + 1) % frames.count
+                    } label: {
+                        Label("Next", systemImage: "chevron.right").frame(minHeight: 44)
+                    }
                 }
             }
 

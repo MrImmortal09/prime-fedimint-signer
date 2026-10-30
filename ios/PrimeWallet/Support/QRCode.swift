@@ -4,10 +4,10 @@ import SwiftUI
 enum QRCode {
     private static let context = CIContext()
 
-    static func image(for text: String) -> UIImage? {
+    static func image(for text: String, correctionLevel: String = "L") -> UIImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(text.utf8)
-        filter.correctionLevel = "L"
+        filter.correctionLevel = correctionLevel
         guard let output = filter.outputImage else { return nil }
         let scaled = output.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
         guard let image = context.createCGImage(scaled, from: scaled.extent) else { return nil }
@@ -18,10 +18,11 @@ enum QRCode {
 /// A QR code on a white card, so it scans from any background.
 struct QRCodeView: View {
     let text: String
+    var correctionLevel = "L"
 
     var body: some View {
         Group {
-            if let image = QRCode.image(for: text) {
+            if let image = QRCode.image(for: text, correctionLevel: correctionLevel) {
                 Image(uiImage: image)
                     .interpolation(.none)
                     .resizable()
