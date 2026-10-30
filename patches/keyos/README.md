@@ -37,3 +37,9 @@ The probe is not included in the application.
 The wallet detector intentionally accepts only the configured RGB accent colors;
 it does not accept a swapped blue accent. No palette inversion or automatic
 image-based format guessing is used.
+
+## Scanner session reset
+
+`0002-qr-scanner-reset-session.patch` applies to the same KeyOS revision. The scanner process can be reused for consecutive navigation requests, but did not clear its UR decoder on `NavigationFocused`. Frames for a new request could then be refused forever with an inconsistent-part checksum error. The patch clears decoder state, the previous camera frame, and progress when navigation starts. A valid UR part from a different fountain sequence also resets accumulation; subsequent frames still pass normal decoding and checksum validation.
+
+Rebuild the hosted `gui-app-qr-scanner` against the matching SDK and replace its simulator bundle's `app.elf`, keeping the original executable as a backup, then restart the simulator. This is a system-scanner fix; rebuilding only `prime-app` does not include it. The iPhone exchange view also gets a fresh SwiftUI identity for each request, so response decoder and animation state cannot leak into the next exchange. No tests were run for this patch at the user's request.

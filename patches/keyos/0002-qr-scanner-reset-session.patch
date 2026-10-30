@@ -1,0 +1,32 @@
+diff --git a/apps/gui-app-qr-scanner/src/main.rs b/apps/gui-app-qr-scanner/src/main.rs
+index d4121c8..9fb8ae2 100644
+--- a/apps/gui-app-qr-scanner/src/main.rs
++++ b/apps/gui-app-qr-scanner/src/main.rs
+@@ -158,6 +158,15 @@ impl AppState {
+                 }
+                 (false, Ok(part)) => {
+                     if let Err(e) = self.ur_decoder.receive(part) {
++                        if matches!(e, foundation_ur::decoder::Error::Fountain(
++                            foundation_ur::fountain::decoder::Error::InconsistentPart { .. }
++                        )) {
++                            // A new message or fragment size must not be mixed with
++                            // the previous message. Start fresh on the next frame;
++                            // all normal UR and checksum validation still applies.
++                            self.ur_decoder.clear();
++                            return ScanQrProgress::Progress(0.0);
++                        }
+                         log::warn!("Could not receive UR part: {}", e);
+                         return ScanQrProgress::Unchanged;
+                     }
+@@ -592,6 +601,11 @@ fn app_main(cx: AppContext, ui: AppWindow) {
+                     .detach();
+                 }
+                 let mut state = state.borrow_mut();
++                // Each navigation request starts a separate UR message, even when
++                // this scanner process is reused by the same calling app.
++                state.ur_decoder.clear();
++                state.frame_raw = None;
++                ui.global::<Global>().set_scan_progress(0.0);
+                 state.request_matching_apps = options.request_matching_apps;
+                 state.status = ScanStatus::HasPendingNavRequest;
+             }

@@ -25,6 +25,7 @@ struct RootView: View {
         }
         .sheet(item: $bridge.pending) { exchange in
             PrimeExchangeView(exchange: exchange)
+                .id(exchange.id)
                 .interactiveDismissDisabled()
         }
         .alert(
