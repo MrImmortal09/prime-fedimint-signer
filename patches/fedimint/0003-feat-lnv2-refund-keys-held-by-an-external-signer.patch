@@ -1,0 +1,521 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Om Swami <reach.oms2004@gmail.com>
+Date: Fri, 30 Oct 2026 21:44:13 +0530
+Subject: [PATCH 3/3] feat(lnv2): refund keys held by an external signer
+
+`LightningClientInit::refund_keys` lets an external signer hold the refund
+keys of outgoing contracts. The signer then authorises gateways to pay,
+signs refunds through the client's transaction signer, and a refund it
+does not sign yet is retried with a growing delay instead of failing.
+---
+ modules/fedimint-lnv2-client/src/lib.rs     |  42 ++++-
+ modules/fedimint-lnv2-client/src/refund.rs  |  51 ++++++
+ modules/fedimint-lnv2-client/src/send_sm.rs | 171 +++++++++++++++-----
+ modules/fedimint-lnv2-tests/tests/tests.rs  |   1 +
+ 4 files changed, 219 insertions(+), 46 deletions(-)
+ create mode 100644 modules/fedimint-lnv2-client/src/refund.rs
+
+diff --git a/modules/fedimint-lnv2-client/src/lib.rs b/modules/fedimint-lnv2-client/src/lib.rs
+index 092707a..89029aa 100644
+--- a/modules/fedimint-lnv2-client/src/lib.rs
++++ b/modules/fedimint-lnv2-client/src/lib.rs
+@@ -12,6 +12,7 @@
+ pub mod db;
+ pub mod events;
+ mod receive_sm;
++mod refund;
+ mod send_sm;
+ 
+ use std::collections::{BTreeMap, BTreeSet};
+@@ -71,6 +72,7 @@
+ use crate::api::LightningFederationApi;
+ use crate::events::SendPaymentEvent;
+ use crate::receive_sm::{ReceiveSMCommon, ReceiveSMState, ReceiveStateMachine};
++pub use crate::refund::{DynRefundKeys, RefundKey, RefundKeys};
+ use crate::send_sm::{SendSMCommon, SendSMState, SendStateMachine};
+ 
+ /// Number of blocks until outgoing lightning contracts times out and user
+@@ -232,6 +234,8 @@ pub enum FinalReceiveOperationState {
+ pub struct LightningClientInit {
+     pub gateway_conn: Option<Arc<dyn GatewayConnection + Send + Sync>>,
+     pub custom_meta_fn: Arc<dyn Fn() -> Value + Send + Sync>,
++    /// Refund keys held by an external signer; `None` derives them locally.
++    pub refund_keys: Option<DynRefundKeys>,
+ }
+ 
+ impl std::fmt::Debug for LightningClientInit {
+@@ -239,6 +243,7 @@ fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+         f.debug_struct("LightningClientInit")
+             .field("gateway_conn", &self.gateway_conn)
+             .field("custom_meta_fn", &"<function>")
++            .field("refund_keys", &self.refund_keys)
+             .finish()
+     }
+ }
+@@ -248,6 +253,7 @@ fn default() -> Self {
+         LightningClientInit {
+             gateway_conn: None,
+             custom_meta_fn: Arc::new(|| Value::Null),
++            refund_keys: None,
+         }
+     }
+ }
+@@ -291,6 +297,7 @@ async fn init(
+             args.module_api().clone(),
+             args.module_root_secret(),
+             gateway_conn,
++            self.refund_keys.clone(),
+             self.custom_meta_fn.clone(),
+             args.admin_auth().cloned(),
+             args.task_group(),
+@@ -316,6 +323,7 @@ pub struct LightningClientContext {
+     federation_id: FederationId,
+     gateway_conn: Arc<dyn GatewayConnection + Send + Sync>,
+     pub(crate) client_ctx: ClientContext<LightningClientModule>,
++    pub(crate) refund_keys: Option<DynRefundKeys>,
+ }
+ 
+ impl Context for LightningClientContext {
+@@ -332,6 +340,7 @@ pub struct LightningClientModule {
+     keypair: Keypair,
+     lnurl_keypair: Keypair,
+     gateway_conn: Arc<dyn GatewayConnection + Send + Sync>,
++    refund_keys: Option<DynRefundKeys>,
+     #[allow(unused)] // The field is only used by the cli feature
+     admin_auth: Option<ApiAuth>,
+ }
+@@ -349,6 +358,7 @@ fn context(&self) -> Self::ModuleStateMachineContext {
+             federation_id: self.federation_id,
+             gateway_conn: self.gateway_conn.clone(),
+             client_ctx: self.client_ctx.clone(),
++            refund_keys: self.refund_keys.clone(),
+         }
+     }
+ 
+@@ -393,6 +403,7 @@ fn new(
+         module_api: DynModuleApi,
+         module_root_secret: &DerivableSecret,
+         gateway_conn: Arc<dyn GatewayConnection + Send + Sync>,
++        refund_keys: Option<DynRefundKeys>,
+         custom_meta_fn: Arc<dyn Fn() -> Value + Send + Sync>,
+         admin_auth: Option<ApiAuth>,
+         task_group: &TaskGroup,
+@@ -411,6 +422,7 @@ fn new(
+                 .child_key(ChildId(1))
+                 .to_secp_key(SECP256K1),
+             gateway_conn,
++            refund_keys,
+             admin_auth,
+         };
+ 
+@@ -690,11 +702,26 @@ async fn fund_outgoing_contract(
+         routing_info: RoutingInfo,
+         custom_meta: Value,
+     ) -> Result<OperationId, SendPaymentError> {
+-        let (ephemeral_tweak, ephemeral_pk) = tweak::generate(self.keypair.public_key());
++        let (ephemeral_pk, refund_pk, refund_key) = match &self.refund_keys {
++            Some(refund_keys) => {
++                let (ephemeral_pk, refund_pk) = refund_keys.new_refund_key();
+ 
+-        let refund_keypair = SecretKey::from_slice(&ephemeral_tweak)
+-            .expect("32 bytes, within curve order")
+-            .keypair(secp256k1::SECP256K1);
++                (ephemeral_pk, refund_pk, RefundKey::Remote)
++            }
++            None => {
++                let (ephemeral_tweak, ephemeral_pk) = tweak::generate(self.keypair.public_key());
++
++                let refund_keypair = SecretKey::from_slice(&ephemeral_tweak)
++                    .expect("32 bytes, within curve order")
++                    .keypair(secp256k1::SECP256K1);
++
++                (
++                    ephemeral_pk,
++                    refund_keypair.public_key(),
++                    RefundKey::Local(refund_keypair),
++                )
++            }
++        };
+ 
+         let (send_fee, expiration_delta) = routing_info.send_parameters(&invoice);
+ 
+@@ -717,7 +744,7 @@ async fn fund_outgoing_contract(
+             amount: send_fee.add_to(amount),
+             expiration: consensus_block_count + expiration_delta + CONTRACT_CONFIRMATION_BUFFER,
+             claim_pk: routing_info.module_public_key,
+-            refund_pk: refund_keypair.public_key(),
++            refund_pk,
+             ephemeral_pk,
+         };
+ 
+@@ -739,7 +766,7 @@ async fn fund_outgoing_contract(
+                         contract: contract_clone.clone(),
+                         gateway_api: Some(gateway_api_clone.clone()),
+                         invoice: Some(LightningInvoice::Bolt11(invoice_clone.clone())),
+-                        refund_keypair,
++                        refund_key: refund_key.clone(),
+                     },
+                     state: SendSMState::Funding,
+                 })]
+@@ -901,6 +928,9 @@ pub async fn subscribe_send_operation_state_updates(
+                                 yield SendOperationState::Failure;
+                                 return;
+                             },
++                            SendSMState::AwaitingRefund { .. } => {
++                                yield SendOperationState::Refunding;
++                            },
+                         }
+                     }
+                 }
+diff --git a/modules/fedimint-lnv2-client/src/refund.rs b/modules/fedimint-lnv2-client/src/refund.rs
+new file mode 100644
+index 0000000..8f73275
+--- /dev/null
++++ b/modules/fedimint-lnv2-client/src/refund.rs
+@@ -0,0 +1,51 @@
++//! Where the refund keys of outgoing contracts come from.
++//!
++//! By default the client derives each contract's refund key from an ephemeral
++//! key and the module's static key. A client whose keys live on an external
++//! signer sets [`RefundKeys`] in
++//! [`LightningClientInit::refund_keys`](crate::LightningClientInit::refund_keys):
++//! the signer then signs refunds through the client's
++//! [`TransactionSigner`](fedimint_client_module::transaction::TransactionSigner),
++//! and authorises gateways to pay.
++
++use std::fmt::Debug;
++use std::sync::Arc;
++
++use fedimint_client_module::transaction::RemoteKey;
++use fedimint_core::encoding::{Decodable, Encodable};
++use fedimint_core::secp256k1::schnorr::Signature;
++use fedimint_core::secp256k1::{Keypair, PublicKey};
++use fedimint_core::task::{MaybeSend, MaybeSync};
++use fedimint_core::{apply, async_trait_maybe_send};
++use fedimint_lnv2_common::LightningInvoice;
++use fedimint_lnv2_common::contracts::OutgoingContract;
++
++/// The key that refunds an outgoing contract.
++#[derive(Debug, Clone, Eq, PartialEq, Hash, Decodable, Encodable)]
++pub enum RefundKey {
++    /// This client holds the key.
++    Local(Keypair),
++    /// An external signer holds the key, reached through [`RefundKeys`].
++    Remote,
++}
++
++/// Refund keys held by an external signer.
++#[apply(async_trait_maybe_send!)]
++pub trait RefundKeys: Debug + MaybeSend + MaybeSync + 'static {
++    /// The ephemeral point and the refund key of a new outgoing contract.
++    fn new_refund_key(&self) -> (PublicKey, PublicKey);
++
++    /// The key that signs a refund of `contract`, for the client's
++    /// transaction signer.
++    fn remote_key(&self, contract: &OutgoingContract) -> RemoteKey;
++
++    /// The refund key's signature over the hash of `invoice`, with which the
++    /// gateway checks that whoever funded `contract` asked for this payment.
++    async fn gateway_auth(
++        &self,
++        contract: &OutgoingContract,
++        invoice: &LightningInvoice,
++    ) -> Result<Signature, String>;
++}
++
++pub type DynRefundKeys = Arc<dyn RefundKeys>;
+diff --git a/modules/fedimint-lnv2-client/src/send_sm.rs b/modules/fedimint-lnv2-client/src/send_sm.rs
+index 669e78e..4de4c35 100644
+--- a/modules/fedimint-lnv2-client/src/send_sm.rs
++++ b/modules/fedimint-lnv2-client/src/send_sm.rs
+@@ -1,3 +1,5 @@
++use std::time::Duration;
++
+ use bitcoin::hashes::sha256;
+ use fedimint_api_client::api::ServerError;
+ use fedimint_client_module::DynGlobalClientContext;
+@@ -7,19 +9,20 @@
+ use fedimint_core::core::OperationId;
+ use fedimint_core::encoding::{Decodable, Encodable};
+ use fedimint_core::module::Amounts;
+-use fedimint_core::util::SafeUrl;
++use fedimint_core::task::sleep;
+ use fedimint_core::util::backoff_util::api_networking_backoff;
++use fedimint_core::util::{FmtCompact as _, SafeUrl};
+ use fedimint_core::{OutPoint, TransactionId, crit, secp256k1, util};
+ use fedimint_lnv2_common::contracts::OutgoingContract;
+ use fedimint_lnv2_common::{LightningInput, LightningInputV0, OutgoingWitness};
+ use fedimint_logging::LOG_CLIENT_MODULE_LNV2;
+ use futures::future::pending;
+-use secp256k1::Keypair;
+ use secp256k1::schnorr::Signature;
+-use tracing::instrument;
++use tracing::{instrument, warn};
+ 
+ use crate::api::LightningFederationApi;
+ use crate::events::{SendPaymentStatus, SendPaymentUpdateEvent};
++use crate::refund::RefundKey;
+ use crate::{LightningClientContext, LightningInvoice};
+ 
+ #[derive(Debug, Clone, Eq, PartialEq, Hash, Decodable, Encodable)]
+@@ -44,7 +47,7 @@ pub struct SendSMCommon {
+     pub contract: OutgoingContract,
+     pub gateway_api: Option<SafeUrl>,
+     pub invoice: Option<LightningInvoice>,
+-    pub refund_keypair: Keypair,
++    pub refund_key: RefundKey,
+ }
+ 
+ #[derive(Debug, Clone, Eq, PartialEq, Hash, Decodable, Encodable)]
+@@ -54,6 +57,12 @@ pub enum SendSMState {
+     Rejected(String),
+     Success([u8; 32]),
+     Refunding(Vec<OutPoint>),
++    /// The contract is to be refunded, but the external signer that holds the
++    /// refund key did not sign yet; the claim is tried again later.
++    AwaitingRefund {
++        witness: OutgoingWitness,
++        attempt: u32,
++    },
+ }
+ 
+ async fn send_update_event(
+@@ -120,7 +129,7 @@ fn transitions(
+                             self.common.outpoint,
+                             self.common.contract.clone(),
+                             self.common.invoice.clone().unwrap(),
+-                            self.common.refund_keypair,
++                            self.common.refund_key.clone(),
+                             context.clone(),
+                         ),
+                         move |dbtx, response, old_state| {
+@@ -151,6 +160,26 @@ fn transitions(
+                     ),
+                 ]
+             }
++            SendSMState::AwaitingRefund { witness, attempt } => {
++                let context = context.clone();
++                let global_context = global_context.clone();
++                let witness = witness.clone();
++                let attempt = *attempt;
++
++                vec![StateTransition::new(
++                    sleep(refund_retry_delay(attempt)),
++                    move |dbtx, (), old_state| {
++                        Box::pin(Self::claim_refund(
++                            context.clone(),
++                            global_context.clone(),
++                            dbtx,
++                            old_state,
++                            witness.clone(),
++                            attempt,
++                        ))
++                    },
++                )]
++            }
+             SendSMState::Refunding(..) | SendSMState::Success(..) | SendSMState::Rejected(..) => {
+                 vec![]
+             }
+@@ -180,17 +209,32 @@ fn transition_funding(
+         }
+     }
+ 
+-    #[instrument(target = LOG_CLIENT_MODULE_LNV2, skip(refund_keypair, context))]
++    #[instrument(target = LOG_CLIENT_MODULE_LNV2, skip(refund_key, context))]
+     async fn gateway_send_payment(
+         gateway_api: SafeUrl,
+         federation_id: FederationId,
+         outpoint: OutPoint,
+         contract: OutgoingContract,
+         invoice: LightningInvoice,
+-        refund_keypair: Keypair,
++        refund_key: RefundKey,
+         context: LightningClientContext,
+     ) -> Result<[u8; 32], Signature> {
+         util::retry("gateway-send-payment", api_networking_backoff(), || async {
++            // The gateway checks that whoever can refund the contract asked for
++            // this invoice.
++            let auth = match &refund_key {
++                RefundKey::Local(keypair) => keypair.sign_schnorr(secp256k1::Message::from_digest(
++                    *invoice.consensus_hash::<sha256::Hash>().as_ref(),
++                )),
++                RefundKey::Remote => context
++                    .refund_keys
++                    .as_ref()
++                    .expect("Remote refund keys are only used with a provider")
++                    .gateway_auth(&contract, &invoice)
++                    .await
++                    .map_err(SendPaymentAttemptError::Auth)?,
++            };
++
+             let payment_result = context
+                 .gateway_conn
+                 .send_payment(
+@@ -199,9 +243,7 @@ async fn gateway_send_payment(
+                     outpoint,
+                     contract.clone(),
+                     invoice.clone(),
+-                    refund_keypair.sign_schnorr(secp256k1::Message::from_digest(
+-                        *invoice.consensus_hash::<sha256::Hash>().as_ref(),
+-                    )),
++                    auth,
+                 )
+                 .await?;
+ 
+@@ -235,33 +277,15 @@ async fn transition_gateway_send_payment(
+                 old_state.update(SendSMState::Success(preimage))
+             }
+             Err(signature) => {
+-                let client_input = ClientInput::<LightningInput> {
+-                    input: LightningInput::V0(LightningInputV0::Outgoing(
+-                        old_state.common.outpoint,
+-                        OutgoingWitness::Cancel(signature),
+-                    )),
+-                    amounts: Amounts::new_bitcoin(old_state.common.contract.amount),
+-                    keys: vec![old_state.common.refund_keypair],
+-                };
+-
+-                let change_range = global_context
+-                    .claim_inputs(
+-                        dbtx,
+-                        // The input of the refund tx is managed by this state machine
+-                        ClientInputBundle::new_no_sm(vec![client_input]),
+-                    )
+-                    .await
+-                    .expect("Cannot claim input, additional funding needed");
+-
+-                send_update_event(
++                Self::claim_refund(
+                     context,
++                    global_context,
+                     dbtx,
+-                    old_state.common.operation_id,
+-                    SendPaymentStatus::Refunded,
++                    old_state,
++                    OutgoingWitness::Cancel(signature),
++                    0,
+                 )
+-                .await;
+-
+-                old_state.update(SendSMState::Refunding(change_range.into_iter().collect()))
++                .await
+             }
+         }
+     }
+@@ -305,19 +329,73 @@ async fn transition_preimage(
+             return old_state.update(SendSMState::Success(preimage));
+         }
+ 
++        Self::claim_refund(
++            context,
++            global_context,
++            dbtx,
++            old_state,
++            OutgoingWitness::Refund,
++            0,
++        )
++        .await
++    }
++
++    /// Claims the contract back with `witness`.
++    ///
++    /// The input of the refund transaction is managed by this state machine. A
++    /// refund key on an external signer may not sign right away, for example
++    /// while the signer is out of reach; the claim is then tried again after
++    /// [`refund_retry_delay`].
++    async fn claim_refund(
++        context: LightningClientContext,
++        global_context: DynGlobalClientContext,
++        dbtx: &mut ClientSMDatabaseTransaction<'_, '_>,
++        old_state: SendStateMachine,
++        witness: OutgoingWitness,
++        attempt: u32,
++    ) -> SendStateMachine {
++        let (keys, remote_keys) = match &old_state.common.refund_key {
++            RefundKey::Local(keypair) => (vec![*keypair], vec![]),
++            RefundKey::Remote => {
++                let remote_key = context
++                    .refund_keys
++                    .as_ref()
++                    .expect("Remote refund keys are only used with a provider")
++                    .remote_key(&old_state.common.contract);
++
++                (vec![], vec![remote_key])
++            }
++        };
++
+         let client_input = ClientInput::<LightningInput> {
+             input: LightningInput::V0(LightningInputV0::Outgoing(
+                 old_state.common.outpoint,
+-                OutgoingWitness::Refund,
++                witness.clone(),
+             )),
+             amounts: Amounts::new_bitcoin(old_state.common.contract.amount),
+-            keys: vec![old_state.common.refund_keypair],
++            keys,
+         };
+ 
+-        let change_range = global_context
+-            .claim_inputs(dbtx, ClientInputBundle::new_no_sm(vec![client_input]))
+-            .await
+-            .expect("Cannot claim input, additional funding needed");
++        let inputs =
++            ClientInputBundle::new_no_sm(vec![client_input]).with_remote_keys(vec![remote_keys]);
++
++        let change_range = match global_context.claim_inputs(dbtx, inputs).await {
++            Ok(change_range) => change_range,
++            Err(error) if old_state.common.refund_key == RefundKey::Remote => {
++                warn!(
++                    target: LOG_CLIENT_MODULE_LNV2,
++                    err = %error.fmt_compact(),
++                    attempt,
++                    "The refund was not signed, trying again later",
++                );
++
++                return old_state.update(SendSMState::AwaitingRefund {
++                    witness,
++                    attempt: attempt.saturating_add(1),
++                });
++            }
++            Err(error) => panic!("Cannot claim input, additional funding needed: {error}"),
++        };
+ 
+         send_update_event(
+             context,
+@@ -331,6 +409,14 @@ async fn transition_preimage(
+     }
+ }
+ 
++/// How long to wait before claiming a refund again after attempt `attempt`
++/// failed: ten seconds, doubling to at most an hour.
++fn refund_retry_delay(attempt: u32) -> Duration {
++    Duration::from_secs(10)
++        .saturating_mul(2u32.saturating_pow(attempt))
++        .min(Duration::from_secs(60 * 60))
++}
++
+ /// Why one attempt to have the gateway pay the invoice failed, so that it is
+ /// made again.
+ #[derive(Debug, thiserror::Error)]
+@@ -343,4 +429,9 @@ enum SendPaymentAttemptError {
+     /// contract.
+     #[error("Invalid gateway response: {0:?}")]
+     InvalidResponse(Result<[u8; 32], Signature>),
++
++    /// The external signer that holds the refund key did not authorise the
++    /// payment.
++    #[error("The refund key's signer did not authorise the payment: {0}")]
++    Auth(String),
+ }
+diff --git a/modules/fedimint-lnv2-tests/tests/tests.rs b/modules/fedimint-lnv2-tests/tests/tests.rs
+index ef26a8f..af0bd65 100644
+--- a/modules/fedimint-lnv2-tests/tests/tests.rs
++++ b/modules/fedimint-lnv2-tests/tests/tests.rs
+@@ -116,6 +116,7 @@ fn fixtures_with_gateway(gateway_conn: MockGatewayConnection) -> Fixtures {
+                     "timestamp": chrono::Utc::now().timestamp(),
+                 })
+             }),
++            refund_keys: None,
+         },
+         LightningInit,
+     )

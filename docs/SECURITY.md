@@ -82,6 +82,14 @@ What the user sees on the device is computed from these checks, never from label
   the receiver redeems it. `ShowOnDevice` keeps it off the phone.
 - **Privacy against a compromised phone.** The view material reveals every note in the federation.
 
+## Gateway authorisation
+
+A Lightning payment needs a second signature from the refund key: the gateway's proof that whoever
+funded the contract asked for this invoice. Prime gives it only for a `PayInvoice` transaction it
+analysed, over a hash it computes itself from that invoice. The message is the SHA-256 of an encoded
+invoice, so it cannot double as a transaction id that spends the contract, and the phone cannot pick
+it.
+
 ## On the device
 
 - **The review is the device's own.** The app shows what `fps-signer` computed from the request's

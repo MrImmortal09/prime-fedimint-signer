@@ -1,0 +1,1670 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Om Swami <reach.oms2004@gmail.com>
+Date: Fri, 30 Oct 2026 21:44:13 +0530
+Subject: [PATCH 2/3] feat(mintv2): note keys from a provider, and notes issued
+ to external keys
+
+`NoteKeyProvider` supplies each note's spend key and blinding key.
+`MintClientInit` derives them from the module root secret as before;
+`MintClientInitWithKeys` takes a provider whose spend keys an external
+signer holds. Wallet notes carry a local or remote spend key, and remote
+ones are spent through the client's transaction signer. Such a wallet only
+spends notes when a transaction needs funding, so receiving stays signed by
+the client alone, and it refuses to hand out bearer e-cash itself.
+
+`issue_external_notes` issues notes to nonces and blinding keys the caller
+provides and returns their signatures without adding them to the wallet;
+`claim_external_notes` spends such notes back into the wallet.
+
+The client database encoding of notes changes, without a migration yet.
+---
+ .../fedimint-mintv2-client/src/client_db.rs   |  30 +-
+ modules/fedimint-mintv2-client/src/input.rs   |  55 +-
+ .../fedimint-mintv2-client/src/issuance.rs    |  29 +-
+ modules/fedimint-mintv2-client/src/keys.rs    |  89 ++
+ modules/fedimint-mintv2-client/src/lib.rs     | 898 +++++++++++++-----
+ modules/fedimint-mintv2-client/src/output.rs  |  52 +-
+ modules/fedimint-mintv2-tests/tests/db/mod.rs |   7 +-
+ 7 files changed, 874 insertions(+), 286 deletions(-)
+ create mode 100644 modules/fedimint-mintv2-client/src/keys.rs
+
+diff --git a/modules/fedimint-mintv2-client/src/client_db.rs b/modules/fedimint-mintv2-client/src/client_db.rs
+index cfa13db..1adf62a 100644
+--- a/modules/fedimint-mintv2-client/src/client_db.rs
++++ b/modules/fedimint-mintv2-client/src/client_db.rs
+@@ -1,24 +1,26 @@
+ use std::collections::{BTreeMap, BTreeSet};
+ 
+ use bitcoin_hashes::hash160;
++use fedimint_core::core::OperationId;
+ use fedimint_core::encoding::{Decodable, Encodable};
+ use fedimint_core::{impl_db_lookup, impl_db_record};
+ use fedimint_mintv2_common::Denomination;
+ use strum::Display;
+ use strum_macros::EnumIter;
+ 
+-use crate::SpendableNote;
+ use crate::issuance::NoteIssuanceRequest;
++use crate::{IssuedExternalNote, WalletNote};
+ 
+ #[repr(u8)]
+ #[derive(Clone, Display, EnumIter, Debug)]
+ pub enum DbKeyPrefix {
+     Note = 0x20,
+     RecoveryState = 0x21,
++    ExternalNote = 0x22,
+ }
+ 
+ #[derive(Debug, Clone, Encodable, Decodable)]
+-pub struct SpendableNoteKey(pub SpendableNote);
++pub struct SpendableNoteKey(pub WalletNote);
+ 
+ #[derive(Debug, Clone, Encodable, Decodable)]
+ pub struct SpendableNotePrefix;
+@@ -62,3 +64,27 @@ pub struct RecoveryState {
+     value = RecoveryState,
+     db_prefix = DbKeyPrefix::RecoveryState,
+ );
++
++/// A note issued to keys outside the wallet, at its position among the notes
++/// of the operation that issued it.
++#[derive(Debug, Clone, Encodable, Decodable)]
++pub struct ExternalNoteKey {
++    pub operation_id: OperationId,
++    pub index: u64,
++}
++
++#[derive(Debug, Clone, Encodable, Decodable)]
++pub struct ExternalNoteOperationPrefix {
++    pub operation_id: OperationId,
++}
++
++impl_db_record!(
++    key = ExternalNoteKey,
++    value = IssuedExternalNote,
++    db_prefix = DbKeyPrefix::ExternalNote,
++);
++
++impl_db_lookup!(
++    key = ExternalNoteKey,
++    query_prefix = ExternalNoteOperationPrefix
++);
+diff --git a/modules/fedimint-mintv2-client/src/input.rs b/modules/fedimint-mintv2-client/src/input.rs
+index 74ad1bf..2fdc930 100644
+--- a/modules/fedimint-mintv2-client/src/input.rs
++++ b/modules/fedimint-mintv2-client/src/input.rs
+@@ -4,11 +4,14 @@
+ use fedimint_client_module::sm::{ClientSMDatabaseTransaction, State, StateTransition};
+ use fedimint_core::TransactionId;
+ use fedimint_core::core::OperationId;
++use fedimint_core::db::IDatabaseTransactionOpsCoreTyped;
+ use fedimint_core::encoding::{Decodable, Encodable};
+ use fedimint_core::module::Amounts;
+ use fedimint_mintv2_common::MintInput;
+ 
+-use crate::{MintClientContext, SpendableNote};
++use crate::client_db::SpendableNoteKey;
++use crate::keys::NoteSpendKey;
++use crate::{MintClientContext, WalletNote};
+ 
+ #[derive(Debug, Clone, Eq, PartialEq, Hash, Decodable, Encodable)]
+ pub struct InputStateMachine {
+@@ -20,7 +23,7 @@ pub struct InputStateMachine {
+ pub struct InputSMCommon {
+     pub operation_id: OperationId,
+     pub txid: TransactionId,
+-    pub spendable_notes: Vec<SpendableNote>,
++    pub spendable_notes: Vec<WalletNote>,
+ }
+ 
+ #[derive(Debug, Clone, Eq, PartialEq, Hash, Decodable, Encodable)]
+@@ -28,6 +31,9 @@ pub enum InputSMState {
+     Pending,
+     Success,
+     Refunding(OutPointRange),
++    /// The transaction was rejected, and the notes, some of whose keys an
++    /// external signer holds, went back into the wallet as they were.
++    Restored,
+ }
+ 
+ impl State for InputStateMachine {
+@@ -35,10 +41,11 @@ impl State for InputStateMachine {
+ 
+     fn transitions(
+         &self,
+-        _context: &Self::ModuleContext,
++        context: &Self::ModuleContext,
+         global_context: &DynGlobalClientContext,
+     ) -> Vec<StateTransition<Self>> {
+         let gc = global_context.clone();
++        let context = context.clone();
+ 
+         match &self.state {
+             InputSMState::Pending => {
+@@ -46,6 +53,7 @@ fn transitions(
+                     Self::await_pending_transaction(gc.clone(), self.common.txid),
+                     move |dbtx, result, old_state| {
+                         Box::pin(Self::transition_pending_transaction(
++                            context.clone(),
+                             gc.clone(),
+                             dbtx,
+                             result,
+@@ -54,7 +62,7 @@ fn transitions(
+                     },
+                 )]
+             }
+-            InputSMState::Success | InputSMState::Refunding(..) => {
++            InputSMState::Success | InputSMState::Refunding(..) | InputSMState::Restored => {
+                 vec![]
+             }
+         }
+@@ -74,6 +82,7 @@ async fn await_pending_transaction(
+     }
+ 
+     async fn transition_pending_transaction(
++        context: MintClientContext,
+         global_context: DynGlobalClientContext,
+         dbtx: &mut ClientSMDatabaseTransaction<'_, '_>,
+         result: Result<(), String>,
+@@ -86,14 +95,44 @@ async fn transition_pending_transaction(
+             };
+         }
+ 
++        let keypairs = old_state
++            .common
++            .spendable_notes
++            .iter()
++            .map(|note| match &note.spend_key {
++                NoteSpendKey::Local(keypair) => Some(*keypair),
++                NoteSpendKey::Remote(_) => None,
++            })
++            .collect::<Option<Vec<_>>>();
++
++        // Reclaiming notes whose keys an external signer holds would need that
++        // signer from inside a state transition. A rejected transaction spent
++        // none of its inputs, so the notes go back into the wallet instead.
++        let Some(keypairs) = keypairs else {
++            for note in &old_state.common.spendable_notes {
++                dbtx.module_tx()
++                    .insert_entry(&SpendableNoteKey(note.clone()), &())
++                    .await;
++            }
++
++            let sender = context.balance_update_sender.clone();
++            dbtx.module_tx().on_commit(move || sender.send_replace(()));
++
++            return InputStateMachine {
++                common: old_state.common,
++                state: InputSMState::Restored,
++            };
++        };
++
+         let inputs = old_state
+             .common
+             .spendable_notes
+             .iter()
+-            .map(|spendable_note| ClientInput::<MintInput> {
+-                input: MintInput::new_v0(spendable_note.note()),
+-                keys: vec![spendable_note.keypair],
+-                amounts: Amounts::new_bitcoin(spendable_note.amount()),
++            .zip(keypairs)
++            .map(|(note, keypair)| ClientInput::<MintInput> {
++                input: MintInput::new_v0(note.note()),
++                keys: vec![keypair],
++                amounts: Amounts::new_bitcoin(note.amount()),
+             })
+             .collect();
+ 
+diff --git a/modules/fedimint-mintv2-client/src/issuance.rs b/modules/fedimint-mintv2-client/src/issuance.rs
+index 62b3f13..065e75e 100644
+--- a/modules/fedimint-mintv2-client/src/issuance.rs
++++ b/modules/fedimint-mintv2-client/src/issuance.rs
+@@ -6,42 +6,47 @@
+ use fedimint_mintv2_common::{Denomination, MintOutput, nonce_message};
+ use tbs::{BlindedMessage, BlindedSignature, BlindingKey, blind_message, unblind_signature};
+ 
+-use crate::{SpendableNote, thread_rng};
++use crate::keys::{NoteKeyProvider, NoteSpendKey};
++use crate::{WalletNote, thread_rng};
+ 
+ #[derive(Debug, Clone, PartialEq, Eq, Hash, Encodable, Decodable)]
+ pub struct NoteIssuanceRequest {
+     pub denomination: Denomination,
+     pub tweak: [u8; 16],
+-    pub keypair: Keypair,
++    pub spend_key: NoteSpendKey,
+     pub blinding_key: BlindingKey,
+ }
+ 
+ impl NoteIssuanceRequest {
+-    pub fn new(denomination: Denomination, tweak: [u8; 16], root_secret: &DerivableSecret) -> Self {
+-        let secret = output_secret(denomination, tweak, root_secret);
++    pub fn new(denomination: Denomination, tweak: [u8; 16], keys: &dyn NoteKeyProvider) -> Self {
++        let keys = keys.note_keys(denomination, tweak);
+ 
+         Self {
+             denomination,
+             tweak,
+-            keypair: keypair(&secret),
+-            blinding_key: blinding_key(&secret),
++            spend_key: keys.spend_key,
++            blinding_key: keys.blinding_key,
+         }
+     }
+ 
++    pub fn nonce(&self) -> PublicKey {
++        self.spend_key.public_key()
++    }
++
+     pub fn output(&self) -> MintOutput {
+         MintOutput::new_v0(self.denomination, self.blinded_message(), self.tweak)
+     }
+ 
+-    pub fn finalize(&self, signature: BlindedSignature) -> SpendableNote {
+-        SpendableNote {
++    pub fn finalize(&self, signature: BlindedSignature) -> WalletNote {
++        WalletNote {
+             denomination: self.denomination,
+-            keypair: self.keypair,
++            spend_key: self.spend_key.clone(),
+             signature: unblind_signature(self.blinding_key, signature),
+         }
+     }
+ 
+     pub fn blinded_message(&self) -> BlindedMessage {
+-        blind_message(nonce_message(self.keypair.public_key()), self.blinding_key)
++        blind_message(nonce_message(self.nonce()), self.blinding_key)
+     }
+ }
+ 
+@@ -93,7 +98,7 @@ pub fn output_secret(
+     )
+ }
+ 
+-fn keypair(secret: &OutputSecret) -> Keypair {
++pub(crate) fn keypair(secret: &OutputSecret) -> Keypair {
+     secret.0.clone().to_secp_key(SECP256K1)
+ }
+ 
+@@ -101,7 +106,7 @@ pub fn nonce(secret: &OutputSecret) -> PublicKey {
+     keypair(secret).public_key()
+ }
+ 
+-fn blinding_key(secret: &OutputSecret) -> BlindingKey {
++pub(crate) fn blinding_key(secret: &OutputSecret) -> BlindingKey {
+     BlindingKey(secret.0.to_bls12_381_key())
+ }
+ 
+diff --git a/modules/fedimint-mintv2-client/src/keys.rs b/modules/fedimint-mintv2-client/src/keys.rs
+new file mode 100644
+index 0000000..eaf9df1
+--- /dev/null
++++ b/modules/fedimint-mintv2-client/src/keys.rs
+@@ -0,0 +1,89 @@
++//! Where the module's note keys come from.
++//!
++//! [`MintClientInit`](crate::MintClientInit) derives every note key from the
++//! module's root secret. A client whose spend keys live on an external signer,
++//! such as a hardware device, uses
++//! [`MintClientInitWithKeys`](crate::MintClientInitWithKeys) with a
++//! [`NoteKeyProvider`] that knows each note's nonce and blinding key but not
++//! its spend key. Such notes are spent through the client's
++//! [`TransactionSigner`](fedimint_client_module::transaction::TransactionSigner).
++
++use std::fmt::Debug;
++use std::sync::Arc;
++
++use fedimint_client_module::transaction::RemoteKey;
++use fedimint_core::encoding::{Decodable, Encodable};
++use fedimint_core::secp256k1::{Keypair, PublicKey};
++use fedimint_core::task::{MaybeSend, MaybeSync};
++use fedimint_derive_secret::DerivableSecret;
++use fedimint_mintv2_common::Denomination;
++use tbs::BlindingKey;
++
++use crate::issuance;
++
++/// The key that spends a note.
++#[derive(Debug, Clone, PartialEq, Eq, Hash, Encodable, Decodable)]
++pub enum NoteSpendKey {
++    /// This client holds the key.
++    Local(Keypair),
++    /// An external signer holds the key.
++    Remote(RemoteKey),
++}
++
++impl NoteSpendKey {
++    /// The note's nonce: the key's public key.
++    pub fn public_key(&self) -> PublicKey {
++        match self {
++            Self::Local(keypair) => keypair.public_key(),
++            Self::Remote(remote) => remote.public_key,
++        }
++    }
++}
++
++/// The keys of the note at one denomination and tweak.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct NoteKeys {
++    pub spend_key: NoteSpendKey,
++    pub blinding_key: BlindingKey,
++}
++
++/// Derives the keys of the notes this client issues to itself.
++pub trait NoteKeyProvider: Debug + MaybeSend + MaybeSync + 'static {
++    /// The seed of the recovery filter. Every tweak the client issues passes
++    /// [`issuance::check_tweak`] against it, which is how a recovery recognises
++    /// the client's notes among everyone's.
++    fn tweak_filter(&self) -> [u8; 32];
++
++    /// The keys of the note at `(denomination, tweak)`.
++    fn note_keys(&self, denomination: Denomination, tweak: [u8; 16]) -> NoteKeys;
++
++    /// Whether the client holds the spend keys. A client that does not cannot
++    /// hand out notes as e-cash itself.
++    fn holds_spend_keys(&self) -> bool;
++}
++
++pub type DynNoteKeyProvider = Arc<dyn NoteKeyProvider>;
++
++/// Every key from the module's root secret, as fedimint has always derived
++/// them.
++#[derive(Debug, Clone)]
++pub struct RootSecretKeys(pub DerivableSecret);
++
++impl NoteKeyProvider for RootSecretKeys {
++    fn tweak_filter(&self) -> [u8; 32] {
++        issuance::tweak_filter(&self.0)
++    }
++
++    fn note_keys(&self, denomination: Denomination, tweak: [u8; 16]) -> NoteKeys {
++        let secret = issuance::output_secret(denomination, tweak, &self.0);
++
++        NoteKeys {
++            spend_key: NoteSpendKey::Local(issuance::keypair(&secret)),
++            blinding_key: issuance::blinding_key(&secret),
++        }
++    }
++
++    fn holds_spend_keys(&self) -> bool {
++        true
++    }
++}
+diff --git a/modules/fedimint-mintv2-client/src/lib.rs b/modules/fedimint-mintv2-client/src/lib.rs
+index 767569a..500ae3a 100644
+--- a/modules/fedimint-mintv2-client/src/lib.rs
++++ b/modules/fedimint-mintv2-client/src/lib.rs
+@@ -17,6 +17,7 @@
+ mod events;
+ mod input;
+ pub mod issuance;
++pub mod keys;
+ mod output;
+ mod receive;
+ 
+@@ -25,14 +26,17 @@
+ use std::sync::Arc;
+ use std::time::Duration;
+ 
+-use bitcoin_hashes::sha256;
+-use client_db::{RecoveryState, RecoveryStateKey, SpendableNoteAmountPrefix, SpendableNotePrefix};
++use bitcoin_hashes::{hash160, sha256};
++use client_db::{
++    ExternalNoteOperationPrefix, RecoveryState, RecoveryStateKey, SpendableNoteAmountPrefix,
++    SpendableNotePrefix,
++};
+ pub use events::*;
+ use fedimint_api_client::api::DynModuleApi;
+ use fedimint_client::module::ClientModule;
+ use fedimint_client::transaction::{
+     ClientInput, ClientInputBundle, ClientInputSM, ClientOutput, ClientOutputBundle,
+-    ClientOutputSM, FeeQuote, FeeQuoteRequest, TransactionBuilder,
++    ClientOutputSM, FeeQuote, FeeQuoteRequest, RemoteKey, TransactionBuilder,
+ };
+ use fedimint_client_module::db::ClientModuleMigrationFn;
+ use fedimint_client_module::error::{
+@@ -78,6 +82,10 @@
+ pub use crate::ecash::ECash;
+ use crate::input::{InputSMCommon, InputSMState, InputStateMachine};
+ use crate::issuance::NoteIssuanceRequest;
++pub use crate::keys::{
++    DynNoteKeyProvider, NoteKeyProvider, NoteKeys, NoteSpendKey, RootSecretKeys,
++};
++pub use crate::output::NoteDestination;
+ use crate::output::{MintOutputStateMachine, OutputSMCommon, OutputSMState};
+ use crate::receive::{ReceiveSMState, ReceiveStateMachine};
+ 
+@@ -113,11 +121,11 @@ pub fn amount(&self) -> Amount {
+ }
+ 
+ impl SpendableNote {
+-    fn nonce(&self) -> PublicKey {
++    pub fn nonce(&self) -> PublicKey {
+         self.keypair.public_key()
+     }
+ 
+-    fn note(&self) -> Note {
++    pub fn note(&self) -> Note {
+         Note {
+             denomination: self.denomination,
+             nonce: self.nonce(),
+@@ -126,6 +134,85 @@ fn note(&self) -> Note {
+     }
+ }
+ 
++/// A note the wallet holds, spendable with a key held here or by an external
++/// signer.
++#[derive(Debug, Clone, PartialEq, Eq, Hash, Encodable, Decodable)]
++pub struct WalletNote {
++    pub denomination: Denomination,
++    pub spend_key: NoteSpendKey,
++    pub signature: tbs::Signature,
++}
++
++impl WalletNote {
++    pub fn amount(&self) -> Amount {
++        self.denomination.amount()
++    }
++
++    pub fn nonce(&self) -> PublicKey {
++        self.spend_key.public_key()
++    }
++
++    pub fn note(&self) -> Note {
++        Note {
++            denomination: self.denomination,
++            nonce: self.nonce(),
++            signature: self.signature,
++        }
++    }
++
++    /// The note as bearer e-cash, if this client holds its key.
++    pub fn spendable(&self) -> Option<SpendableNote> {
++        match &self.spend_key {
++            NoteSpendKey::Local(keypair) => Some(SpendableNote {
++                denomination: self.denomination,
++                keypair: *keypair,
++                signature: self.signature,
++            }),
++            NoteSpendKey::Remote(_) => None,
++        }
++    }
++}
++
++impl From<SpendableNote> for WalletNote {
++    fn from(note: SpendableNote) -> Self {
++        Self {
++            denomination: note.denomination,
++            spend_key: NoteSpendKey::Local(note.keypair),
++            signature: note.signature,
++        }
++    }
++}
++
++/// A note to issue to keys this client does not derive, such as an external
++/// signer's.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct ExternalNoteRequest {
++    pub denomination: Denomination,
++    /// Must pass the recovery filter of whoever derives the keys.
++    pub tweak: [u8; 16],
++    pub nonce: PublicKey,
++    pub blinding_key: tbs::BlindingKey,
++}
++
++/// A note issued to keys outside the wallet, with its unblinded signature.
++#[derive(Debug, Clone, PartialEq, Eq, Hash, Encodable, Decodable)]
++pub struct IssuedExternalNote {
++    pub denomination: Denomination,
++    pub tweak: [u8; 16],
++    pub nonce: PublicKey,
++    pub signature: tbs::Signature,
++}
++
++impl IssuedExternalNote {
++    pub fn note(&self) -> Note {
++        Note {
++            denomination: self.denomination,
++            nonce: self.nonce,
++            signature: self.signature,
++        }
++    }
++}
++
+ #[derive(Debug, Clone, Serialize, Deserialize)]
+ pub enum MintOperationMeta {
+     Send {
+@@ -142,286 +229,342 @@ pub enum MintOperationMeta {
+         ecash: String,
+         custom_meta: Value,
+     },
++    /// Notes issued to keys outside the wallet; see
++    /// [`MintClientModule::issue_external_notes`].
++    IssueExternal {
++        change_outpoint_range: OutPointRange,
++        amount: Amount,
++        custom_meta: Value,
++    },
++    /// Notes with keys outside the wallet spent into it; see
++    /// [`MintClientModule::claim_external_notes`].
++    ClaimExternal {
++        change_outpoint_range: OutPointRange,
++        amount: Amount,
++        custom_meta: Value,
++    },
+ }
+ 
++/// The mint module with every note key derived from the module's root
++/// secret.
+ #[derive(Debug, Clone)]
+ pub struct MintClientInit;
+ 
+-impl ModuleInit for MintClientInit {
+-    type Common = MintCommonInit;
++/// The mint module with note keys from a [`NoteKeyProvider`], for example one
++/// whose spend keys an external signer holds.
++#[derive(Debug, Clone)]
++pub struct MintClientInitWithKeys(pub DynNoteKeyProvider);
++
++macro_rules! impl_mint_client_init {
++    ($init:ty, $keys:expr) => {
++        impl ModuleInit for $init {
++            type Common = MintCommonInit;
++
++            async fn dump_database(
++                &self,
++                _dbtx: &mut DatabaseTransaction<'_>,
++                _prefix_names: Vec<String>,
++            ) -> Box<dyn Iterator<Item = (String, Box<dyn erased_serde::Serialize + Send>)> + '_>
++            {
++                Box::new(BTreeMap::new().into_iter())
++            }
++        }
+ 
+-    async fn dump_database(
+-        &self,
+-        _dbtx: &mut DatabaseTransaction<'_>,
+-        _prefix_names: Vec<String>,
+-    ) -> Box<dyn Iterator<Item = (String, Box<dyn erased_serde::Serialize + Send>)> + '_> {
+-        Box::new(BTreeMap::new().into_iter())
+-    }
+-}
++        #[apply(async_trait_maybe_send!)]
++        impl ClientModuleInit for $init {
++            type Module = MintClientModule;
+ 
+-#[apply(async_trait_maybe_send!)]
+-impl ClientModuleInit for MintClientInit {
+-    type Module = MintClientModule;
++            fn supported_api_versions(&self) -> MultiApiVersion {
++                MultiApiVersion::try_from_iter([ApiVersion { major: 0, minor: 1 }])
++                    .expect("no version conflicts")
++            }
+ 
+-    fn supported_api_versions(&self) -> MultiApiVersion {
+-        MultiApiVersion::try_from_iter([ApiVersion { major: 0, minor: 1 }])
+-            .expect("no version conflicts")
+-    }
++            fn recovery_mode(&self) -> RecoveryMode {
++                RecoveryMode::Usable
++            }
++
++            async fn prepare_recovery(
++                &self,
++                args: &ClientModuleRecoveryPrepareArgs,
++            ) -> Result<(), ClientModuleError> {
++                prepare_recovery(args).await
++            }
+ 
+-    fn recovery_mode(&self) -> RecoveryMode {
+-        RecoveryMode::Usable
++            async fn recover(
++                &self,
++                args: &ClientModuleRecoverArgs<Self>,
++                _snapshot: Option<&NoModuleBackup>,
++            ) -> Result<Option<Amount>, ClientModuleError> {
++                let keys: DynNoteKeyProvider = ($keys)(self, args.module_root_secret());
++                recover(args, keys.as_ref()).await
++            }
++
++            async fn init(
++                &self,
++                args: &ClientModuleInitArgs<Self>,
++            ) -> Result<Self::Module, ClientModuleError> {
++                let keys: DynNoteKeyProvider = ($keys)(self, args.module_root_secret());
++                init(args, keys)
++            }
++
++            fn get_database_migrations(
++                &self,
++            ) -> BTreeMap<DatabaseVersion, ClientModuleMigrationFn> {
++                BTreeMap::new()
++            }
++        }
++    };
++}
++
++impl_mint_client_init!(MintClientInit, |_: &MintClientInit,
++                                        root_secret: &DerivableSecret|
++ -> DynNoteKeyProvider {
++    Arc::new(RootSecretKeys(root_secret.clone()))
++});
++
++impl_mint_client_init!(MintClientInitWithKeys, |init: &MintClientInitWithKeys,
++                                                _: &DerivableSecret|
++ -> DynNoteKeyProvider {
++    init.0.clone()
++});
++
++async fn prepare_recovery(args: &ClientModuleRecoveryPrepareArgs) -> Result<(), ClientModuleError> {
++    if args
++        .db()
++        .begin_transaction_nc()
++        .await
++        .get_value(&RecoveryStateKey)
++        .await
++        .is_some()
++    {
++        return Ok(());
+     }
+ 
+-    async fn prepare_recovery(
+-        &self,
+-        args: &ClientModuleRecoveryPrepareArgs,
+-    ) -> Result<(), ClientModuleError> {
+-        if args
+-            .db()
+-            .begin_transaction_nc()
++    // The total is the number of items the federation had processed when
++    // the recovery began, so every note this client issues from here on
++    // lands beyond it and is never rediscovered by the scan. Committing
++    // that bound before the module is initialized is what lets the module
++    // be used while its own recovery is still running: the two cannot
++    // arrive at the same note.
++    let state = RecoveryState {
++        next_index: 0,
++        total_items: args
++            .module_api()
++            .fetch_recovery_count()
+             .await
+-            .get_value(&RecoveryStateKey)
+-            .await
+-            .is_some()
+-        {
+-            return Ok(());
+-        }
++            .map_err(ClientModuleError::other)?,
++        requests: BTreeMap::new(),
++        nonces: BTreeSet::new(),
++    };
+ 
+-        // The total is the number of items the federation had processed when
+-        // the recovery began, so every note this client issues from here on
+-        // lands beyond it and is never rediscovered by the scan. Committing
+-        // that bound before the module is initialized is what lets the module
+-        // be used while its own recovery is still running: the two cannot
+-        // arrive at the same note.
+-        let state = RecoveryState {
+-            next_index: 0,
+-            total_items: args
+-                .module_api()
+-                .fetch_recovery_count()
+-                .await
+-                .map_err(ClientModuleError::other)?,
+-            requests: BTreeMap::new(),
+-            nonces: BTreeSet::new(),
+-        };
++    let mut dbtx = args.db().begin_transaction().await;
+ 
+-        let mut dbtx = args.db().begin_transaction().await;
++    dbtx.insert_entry(&RecoveryStateKey, &state).await;
+ 
+-        dbtx.insert_entry(&RecoveryStateKey, &state).await;
++    dbtx.commit_tx().await;
+ 
+-        dbtx.commit_tx().await;
++    Ok(())
++}
++
++async fn recover<I>(
++    args: &ClientModuleRecoverArgs<I>,
++    keys: &dyn NoteKeyProvider,
++) -> Result<Option<Amount>, ClientModuleError>
++where
++    I: ClientModuleInit<Module = MintClientModule> + ModuleInit<Common = MintCommonInit>,
++{
++    let mut state = args
++        .db()
++        .begin_transaction_nc()
++        .await
++        .get_value(&RecoveryStateKey)
++        .await
++        .expect("Prepare recovery commits the state before the recovery is started");
+ 
+-        Ok(())
++    if state.next_index == state.total_items {
++        return Ok(None);
+     }
+ 
+-    async fn recover(
+-        &self,
+-        args: &ClientModuleRecoverArgs<Self>,
+-        _snapshot: Option<&NoModuleBackup>,
+-    ) -> Result<Option<Amount>, ClientModuleError> {
+-        let mut state = args
+-            .db()
+-            .begin_transaction_nc()
+-            .await
+-            .get_value(&RecoveryStateKey)
+-            .await
+-            .expect("Prepare recovery commits the state before the recovery is started");
++    let peer_pool = PeerPool::new(args.api().all_peers());
+ 
+-        if state.next_index == state.total_items {
+-            return Ok(None);
+-        }
++    let mut recovery_stream =
++        futures::stream::iter((state.next_index..state.total_items).step_by(SLICE_SIZE as usize))
++            .map(|start| {
++                let api = args.module_api().clone();
++                let end = std::cmp::min(start + SLICE_SIZE, state.total_items);
+ 
+-        let peer_pool = PeerPool::new(args.api().all_peers());
++                async move { (start, end, api.fetch_recovery_slice_hash(start, end).await) }
++            })
++            .buffered(PARALLEL_HASH_REQUESTS)
++            .map(|(start, end, hash)| {
++                let module_api = args.module_api().clone();
++                let peer_pool = peer_pool.clone();
++
++                async move {
++                    (
++                        start,
++                        download_slice(module_api, peer_pool, start, end, hash).await,
++                    )
++                }
++            })
++            // Unordered, so a guardian that goes quiet holds up only its own
++            // slice. Delivering in order would let it halt everything: the other
++            // requests would finish, their results would fill the buffer, and no
++            // new request could start until the straggler returned. Downloading
++            // runs ahead of it instead, and the items are put back in order below.
++            .buffer_unordered(PARALLEL_SLICE_REQUESTS);
+ 
+-        let mut recovery_stream = futures::stream::iter(
+-            (state.next_index..state.total_items).step_by(SLICE_SIZE as usize),
+-        )
+-        .map(|start| {
+-            let api = args.module_api().clone();
+-            let end = std::cmp::min(start + SLICE_SIZE, state.total_items);
+-
+-            async move { (start, end, api.fetch_recovery_slice_hash(start, end).await) }
+-        })
+-        .buffered(PARALLEL_HASH_REQUESTS)
+-        .map(|(start, end, hash)| {
+-            let module_api = args.module_api().clone();
+-            let peer_pool = peer_pool.clone();
+-
+-            async move {
+-                (
+-                    start,
+-                    download_slice(module_api, peer_pool, start, end, hash).await,
+-                )
+-            }
+-        })
+-        // Unordered, so a guardian that goes quiet holds up only its own
+-        // slice. Delivering in order would let it halt everything: the other
+-        // requests would finish, their results would fill the buffer, and no
+-        // new request could start until the straggler returned. Downloading
+-        // runs ahead of it instead, and the items are put back in order below.
+-        .buffer_unordered(PARALLEL_SLICE_REQUESTS);
+-
+-        let tweak_filter = issuance::tweak_filter(args.module_root_secret());
+-
+-        // Slices that arrived before the ones in front of them. An input
+-        // spends an output that has to have been seen already, so items are
+-        // scanned in index order however they turn up. This holds whatever
+-        // downloaded while a slice was outstanding, which the timeout bounds.
+-        let mut pending: BTreeMap<u64, Vec<RecoveryItem>> = BTreeMap::new();
++    let tweak_filter = keys.tweak_filter();
+ 
+-        loop {
+-            let items = loop {
+-                if let Some(items) = pending.remove(&state.next_index) {
+-                    break items;
+-                }
++    // Slices that arrived before the ones in front of them. An input
++    // spends an output that has to have been seen already, so items are
++    // scanned in index order however they turn up. This holds whatever
++    // downloaded while a slice was outstanding, which the timeout bounds.
++    let mut pending: BTreeMap<u64, Vec<RecoveryItem>> = BTreeMap::new();
+ 
+-                let (start, items) = recovery_stream.next().await.ok_or_else(|| {
+-                    ClientModuleError::other("Recovery stream finished before recovery is complete")
+-                })?;
++    loop {
++        let items = loop {
++            if let Some(items) = pending.remove(&state.next_index) {
++                break items;
++            }
+ 
+-                pending.insert(start, items);
+-            };
++            let (start, items) = recovery_stream.next().await.ok_or_else(|| {
++                ClientModuleError::other("Recovery stream finished before recovery is complete")
++            })?;
+ 
+-            for item in &items {
+-                match item {
+-                    RecoveryItem::Output {
+-                        denomination,
+-                        nonce_hash,
+-                        tweak,
+-                    } => {
+-                        if !issuance::check_tweak(*tweak, tweak_filter) {
+-                            continue;
+-                        }
+-                        let output_secret = issuance::output_secret(
+-                            *denomination,
+-                            *tweak,
+-                            args.module_root_secret(),
+-                        );
+-
+-                        if !issuance::check_nonce(&output_secret, *nonce_hash) {
+-                            continue;
+-                        }
++            pending.insert(start, items);
++        };
+ 
+-                        let computed_nonce_hash = issuance::nonce(&output_secret).consensus_hash();
++        for item in &items {
++            match item {
++                RecoveryItem::Output {
++                    denomination,
++                    nonce_hash,
++                    tweak,
++                } => {
++                    if !issuance::check_tweak(*tweak, tweak_filter) {
++                        continue;
++                    }
+ 
+-                        // Ignore possible duplicate nonces
+-                        if !state.nonces.insert(computed_nonce_hash) {
+-                            continue;
+-                        }
++                    let request = NoteIssuanceRequest::new(*denomination, *tweak, keys);
+ 
+-                        state.requests.insert(
+-                            computed_nonce_hash,
+-                            NoteIssuanceRequest::new(
+-                                *denomination,
+-                                *tweak,
+-                                args.module_root_secret(),
+-                            ),
+-                        );
++                    if request.blinded_message().consensus_hash::<hash160::Hash>() != *nonce_hash {
++                        continue;
+                     }
+-                    RecoveryItem::Input { nonce_hash } => {
+-                        state.requests.remove(nonce_hash);
+-                        state.nonces.remove(nonce_hash);
++
++                    let computed_nonce_hash = request.nonce().consensus_hash();
++
++                    // Ignore possible duplicate nonces
++                    if !state.nonces.insert(computed_nonce_hash) {
++                        continue;
+                     }
++
++                    state.requests.insert(computed_nonce_hash, request);
++                }
++                RecoveryItem::Input { nonce_hash } => {
++                    state.requests.remove(nonce_hash);
++                    state.nonces.remove(nonce_hash);
+                 }
+             }
++        }
+ 
+-            state.next_index += items.len() as u64;
+-
+-            let mut dbtx = args.db().begin_transaction().await;
+-
+-            dbtx.insert_entry(&RecoveryStateKey, &state).await;
+-
+-            if state.next_index == state.total_items {
+-                // Total value of the notes reconstructed during recovery
+-                let recovered_amount = state
+-                    .requests
+-                    .values()
+-                    .map(|request| request.denomination.amount())
+-                    .sum::<Amount>();
+-
+-                let state_machines = args
+-                    .context()
+-                    .map_dyn(vec![MintClientStateMachines::Output(
+-                        MintOutputStateMachine {
+-                            common: OutputSMCommon {
+-                                operation_id: OperationId::new_random(),
+-                                range: None,
+-                                issuance_requests: state.requests.into_values().collect(),
+-                            },
+-                            state: OutputSMState::Pending,
+-                        },
+-                    )])
+-                    .collect();
++        state.next_index += items.len() as u64;
++
++        let mut dbtx = args.db().begin_transaction().await;
+ 
+-                args.context()
+-                    .add_state_machines_dbtx(&mut dbtx.to_ref_nc(), state_machines)
+-                    .await
+-                    .expect("state machine is valid");
++        dbtx.insert_entry(&RecoveryStateKey, &state).await;
+ 
+-                dbtx.commit_tx().await;
++        if state.next_index == state.total_items {
++            // Total value of the notes reconstructed during recovery
++            let recovered_amount = state
++                .requests
++                .values()
++                .map(|request| request.denomination.amount())
++                .sum::<Amount>();
++
++            let state_machines = args
++                .context()
++                .map_dyn(vec![MintClientStateMachines::Output(
++                    MintOutputStateMachine {
++                        common: OutputSMCommon {
++                            operation_id: OperationId::new_random(),
++                            range: None,
++                            issuance_requests: state.requests.into_values().collect(),
++                            destination: NoteDestination::Wallet,
++                        },
++                        state: OutputSMState::Pending,
++                    },
++                )])
++                .collect();
+ 
+-                return Ok(Some(recovered_amount));
+-            }
++            args.context()
++                .add_state_machines_dbtx(&mut dbtx.to_ref_nc(), state_machines)
++                .await
++                .expect("state machine is valid");
+ 
+             dbtx.commit_tx().await;
+ 
+-            args.update_recovery_progress(RecoveryProgress {
+-                complete: state.next_index.try_into().unwrap_or(u32::MAX),
+-                total: state.total_items.try_into().unwrap_or(u32::MAX),
+-            });
++            return Ok(Some(recovered_amount));
+         }
+-    }
+ 
+-    async fn init(
+-        &self,
+-        args: &ClientModuleInitArgs<Self>,
+-    ) -> Result<Self::Module, ClientModuleError> {
+-        let (tweak_sender, tweak_receiver) = async_channel::bounded(50);
+-
+-        let filter = issuance::tweak_filter(args.module_root_secret());
+-
+-        // Only ~1/65536 random tweaks pass the filter, so grinding is
+-        // CPU-bound. Pre-grind in the background and feed tweaks through a
+-        // channel to keep the cost off the spend path. `send` only suspends
+-        // once the channel is full, so we yield explicitly on each found tweak
+-        // to keep single-threaded (wasm) runtimes responsive while the channel
+-        // still has space.
+-        fedimint_core::task::spawn("mintv2-tweak-grinder", async move {
+-            loop {
+-                let tweak: [u8; 16] = thread_rng().r#gen();
+-
+-                if !issuance::check_tweak(tweak, filter) {
+-                    continue;
+-                }
++        dbtx.commit_tx().await;
+ 
+-                if tweak_sender.send(tweak).await.is_err() {
+-                    return;
+-                }
++        args.update_recovery_progress(RecoveryProgress {
++            complete: state.next_index.try_into().unwrap_or(u32::MAX),
++            total: state.total_items.try_into().unwrap_or(u32::MAX),
++        });
++    }
++}
+ 
+-                fedimint_core::task::sleep(Duration::ZERO).await;
++fn init<I>(
++    args: &ClientModuleInitArgs<I>,
++    keys: DynNoteKeyProvider,
++) -> Result<MintClientModule, ClientModuleError>
++where
++    I: ClientModuleInit<Module = MintClientModule> + ModuleInit<Common = MintCommonInit>,
++{
++    let (tweak_sender, tweak_receiver) = async_channel::bounded(50);
++
++    let filter = keys.tweak_filter();
++
++    // Only ~1/65536 random tweaks pass the filter, so grinding is
++    // CPU-bound. Pre-grind in the background and feed tweaks through a
++    // channel to keep the cost off the spend path. `send` only suspends
++    // once the channel is full, so we yield explicitly on each found tweak
++    // to keep single-threaded (wasm) runtimes responsive while the channel
++    // still has space.
++    fedimint_core::task::spawn("mintv2-tweak-grinder", async move {
++        loop {
++            let tweak: [u8; 16] = thread_rng().r#gen();
++
++            if !issuance::check_tweak(tweak, filter) {
++                continue;
+             }
+-        });
+ 
+-        Ok(MintClientModule {
+-            federation_id: *args.federation_id(),
+-            cfg: args.cfg().clone(),
+-            root_secret: args.module_root_secret().clone(),
+-            notifier: args.notifier().clone(),
+-            client_ctx: args.context(),
+-            balance_update_sender: tokio::sync::watch::channel(()).0,
+-            tweak_receiver,
+-        })
+-    }
++            if tweak_sender.send(tweak).await.is_err() {
++                return;
++            }
+ 
+-    fn get_database_migrations(&self) -> BTreeMap<DatabaseVersion, ClientModuleMigrationFn> {
+-        BTreeMap::new()
+-    }
++            fedimint_core::task::sleep(Duration::ZERO).await;
++        }
++    });
++
++    Ok(MintClientModule {
++        federation_id: *args.federation_id(),
++        cfg: args.cfg().clone(),
++        keys,
++        notifier: args.notifier().clone(),
++        client_ctx: args.context(),
++        balance_update_sender: tokio::sync::watch::channel(()).0,
++        tweak_receiver,
++    })
+ }
+ 
+ #[derive(Debug)]
+ pub struct MintClientModule {
+     federation_id: FederationId,
+     cfg: MintClientConfig,
+-    root_secret: DerivableSecret,
++    keys: DynNoteKeyProvider,
+     notifier: ModuleNotifier<MintClientStateMachines>,
+     client_ctx: ClientContext<Self>,
+     balance_update_sender: tokio::sync::watch::Sender<()>,
+@@ -516,9 +659,21 @@ async fn create_final_inputs_and_outputs(
+         }
+ 
+         let requested_amount = output_amount.saturating_sub(input_amount);
++
++        // When an external signer holds the spend keys, wallet notes join a
++        // transaction only if it needs funding. Receiving then never needs the
++        // signer: the client signs the incoming inputs alone.
++        let spend_notes = self.keys.holds_spend_keys() || requested_amount > Amount::ZERO;
++
+         // `select_funding_input` only reads notes, so the balance it left behind is
+         // still accurate for reporting a total below.
+-        let Some(funding_notes) = self.select_funding_input(dbtx, requested_amount).await else {
++        let funding_notes = if spend_notes {
++            self.select_funding_input(dbtx, requested_amount).await
++        } else {
++            Some(vec![])
++        };
++
++        let Some(funding_notes) = funding_notes else {
+             let total_amount = self.get_balance(dbtx, unit).await;
+             return Err(InsufficientBalanceError {
+                 requested_amount,
+@@ -531,7 +686,7 @@ async fn create_final_inputs_and_outputs(
+             self.remove_spendable_note(dbtx, note).await;
+         }
+ 
+-        input_amount += funding_notes.iter().map(SpendableNote::amount).sum();
++        input_amount += funding_notes.iter().map(WalletNote::amount).sum();
+ 
+         output_amount += funding_notes
+             .iter()
+@@ -541,14 +696,19 @@ async fn create_final_inputs_and_outputs(
+         assert!(output_amount <= input_amount);
+ 
+         let (input_notes, output_amounts) = self
+-            .rebalance(dbtx, &self.cfg.fee_consensus, input_amount - output_amount)
++            .rebalance(
++                dbtx,
++                &self.cfg.fee_consensus,
++                input_amount - output_amount,
++                spend_notes,
++            )
+             .await;
+ 
+         for note in &input_notes {
+             self.remove_spendable_note(dbtx, note).await;
+         }
+ 
+-        input_amount += input_notes.iter().map(SpendableNote::amount).sum();
++        input_amount += input_notes.iter().map(WalletNote::amount).sum();
+ 
+         output_amount += input_notes
+             .iter()
+@@ -567,7 +727,7 @@ async fn create_final_inputs_and_outputs(
+         let mut spendable_notes = funding_notes
+             .into_iter()
+             .chain(input_notes)
+-            .collect::<Vec<SpendableNote>>();
++            .collect::<Vec<WalletNote>>();
+ 
+         // We sort the notes by denomination to minimize the leaked information.
+         spendable_notes.sort_by_key(|note| note.denomination);
+@@ -628,7 +788,7 @@ async fn select_funding_input(
+         &self,
+         dbtx: &mut DatabaseTransaction<'_>,
+         mut excess_output: Amount,
+-    ) -> Option<Vec<SpendableNote>> {
++    ) -> Option<Vec<WalletNote>> {
+         let mut selected_notes = Vec::new();
+         let mut target_notes = Vec::new();
+         let mut excess_notes = Vec::new();
+@@ -638,7 +798,7 @@ async fn select_funding_input(
+                 .find_by_prefix(&SpendableNoteAmountPrefix(amount))
+                 .await
+                 .map(|entry| entry.0.0)
+-                .collect::<Vec<SpendableNote>>()
++                .collect::<Vec<WalletNote>>()
+                 .await;
+ 
+             target_notes.extend(notes_amount.iter().take(TARGET_PER_DENOMINATION).cloned());
+@@ -683,12 +843,15 @@ async fn select_funding_input(
+         None
+     }
+ 
++    /// Fills denominations the wallet holds too few notes of, from the excess
++    /// input and, if `spend_notes` allows, by breaking up larger notes.
+     async fn rebalance(
+         &self,
+         dbtx: &mut DatabaseTransaction<'_>,
+         fee: &FeeConsensus,
+         mut excess_input: Amount,
+-    ) -> (Vec<SpendableNote>, Vec<Denomination>) {
++        spend_notes: bool,
++    ) -> (Vec<WalletNote>, Vec<Denomination>) {
+         let n_denominations = self.get_count_by_denomination_dbtx(dbtx).await;
+ 
+         let mut notes = dbtx
+@@ -708,6 +871,7 @@ async fn rebalance(
+             for _ in 0..n_missing {
+                 match excess_input.checked_sub(d.amount() + fee.fee(d.amount())) {
+                     Some(remaining_excess) => excess_input = remaining_excess,
++                    None if !spend_notes => break,
+                     None => match notes.next().await {
+                         Some(note) => {
+                             if note.amount() <= d.amount() + fee.fee(d.amount()) {
+@@ -731,18 +895,27 @@ async fn rebalance(
+ 
+     fn create_input_bundle(
+         operation_id: OperationId,
+-        notes: Vec<SpendableNote>,
++        notes: Vec<WalletNote>,
+         include_receive_sm: bool,
+         amount_unit: AmountUnit,
+     ) -> ClientInputBundle<MintInput, MintClientStateMachines> {
+-        let inputs = notes
++        let (inputs, remote_keys): (Vec<_>, Vec<_>) = notes
+             .iter()
+-            .map(|spendable_note| ClientInput {
+-                input: MintInput::new_v0(spendable_note.note()),
+-                keys: vec![spendable_note.keypair],
+-                amounts: Amounts::new_custom(amount_unit, spendable_note.amount()),
++            .map(|note| {
++                let (keys, remote_keys) = match &note.spend_key {
++                    NoteSpendKey::Local(keypair) => (vec![*keypair], vec![]),
++                    NoteSpendKey::Remote(remote) => (vec![], vec![remote.clone()]),
++                };
++
++                let input = ClientInput {
++                    input: MintInput::new_v0(note.note()),
++                    keys,
++                    amounts: Amounts::new_custom(amount_unit, note.amount()),
++                };
++
++                (input, remote_keys)
+             })
+-            .collect();
++            .unzip();
+ 
+         let input_sms = vec![ClientInputSM {
+             state_machines: Arc::new(move |range: OutPointRange| {
+@@ -769,7 +942,7 @@ fn create_input_bundle(
+             }),
+         }];
+ 
+-        ClientInputBundle::new(inputs, input_sms)
++        ClientInputBundle::new(inputs, input_sms).with_remote_keys(remote_keys)
+     }
+ 
+     /// Build the blinded outputs and their output state machines for a
+@@ -789,11 +962,25 @@ async fn create_output_bundle(
+     ) -> ClientOutputBundle<MintOutput, MintClientStateMachines> {
+         let issuance_requests = futures::stream::iter(requested_denominations)
+             .zip(self.tweak_receiver.clone())
+-            .map(|(d, tweak)| NoteIssuanceRequest::new(d, tweak, &self.root_secret))
++            .map(|(d, tweak)| NoteIssuanceRequest::new(d, tweak, self.keys.as_ref()))
+             .collect::<Vec<NoteIssuanceRequest>>()
+             .await;
+ 
+-        let amount_unit = self.cfg.amount_unit;
++        Self::issuance_output_bundle(
++            operation_id,
++            issuance_requests,
++            NoteDestination::Wallet,
++            self.cfg.amount_unit,
++        )
++    }
++
++    /// The outputs and output state machine issuing `issuance_requests`.
++    fn issuance_output_bundle(
++        operation_id: OperationId,
++        issuance_requests: Vec<NoteIssuanceRequest>,
++        destination: NoteDestination,
++        amount_unit: AmountUnit,
++    ) -> ClientOutputBundle<MintOutput, MintClientStateMachines> {
+         let outputs = issuance_requests
+             .iter()
+             .map(|request| ClientOutput {
+@@ -809,6 +996,7 @@ async fn create_output_bundle(
+                         operation_id,
+                         range: Some(range),
+                         issuance_requests: issuance_requests.clone(),
++                        destination,
+                     },
+                     state: OutputSMState::Pending,
+                 })]
+@@ -915,6 +1103,10 @@ pub async fn send(
+     ) -> Result<(OperationId, ECash), SendECashError> {
+         let amount = round_to_multiple(amount, client_denominations().next().unwrap().amount());
+ 
++        if !self.keys.holds_spend_keys() {
++            return Err(SendECashError::SpendKeysHeldElsewhere);
++        }
++
+         if let Some((operation_id, ecash)) = self
+             .client_ctx
+             .module_db()
+@@ -1002,6 +1194,14 @@ async fn send_ecash_dbtx(
+             self.remove_spendable_note(dbtx, spendable_note).await;
+         }
+ 
++        let notes = notes
++            .iter()
++            .map(|note| {
++                note.spendable()
++                    .expect("Exact change is only made from notes with local keys")
++            })
++            .collect::<Vec<SpendableNote>>();
++
+         let ecash = if include_invite {
+             let invite = self.client_ctx.get_invite_code().await;
+             ECash::new_with_invite(notes, &invite)
+@@ -1061,8 +1261,8 @@ pub async fn receive(
+             return Err(ReceiveECashError::UneconomicalDenomination);
+         }
+ 
+-        let input =
+-            Self::create_input_bundle(operation_id, ecash.notes(), true, self.cfg.amount_unit);
++        let notes = ecash.notes().into_iter().map(WalletNote::from).collect();
++        let input = Self::create_input_bundle(operation_id, notes, true, self.cfg.amount_unit);
+         let input = self.client_ctx.make_client_inputs(input);
+         let ec = base32::encode_prefixed(FEDIMINT_PREFIX, &ecash);
+ 
+@@ -1205,11 +1405,13 @@ async fn can_make_exact_change(&self, remaining_amount: Amount) -> bool {
+     async fn select_exact_change(
+         dbtx: &mut DatabaseTransaction<'_>,
+         mut remaining_amount: Amount,
+-    ) -> Option<Vec<SpendableNote>> {
++    ) -> Option<Vec<WalletNote>> {
++        // Only notes with local keys can be handed out as bearer e-cash.
+         let mut stream = dbtx
+             .find_by_prefix_sorted_descending(&SpendableNotePrefix)
+             .await
+-            .map(|entry| entry.0.0);
++            .map(|entry| entry.0.0)
++            .filter(|note| futures::future::ready(note.spendable().is_some()));
+ 
+         let mut notes = vec![];
+ 
+@@ -1229,6 +1431,160 @@ async fn select_exact_change(
+         (remaining_amount == Amount::ZERO).then_some(notes)
+     }
+ 
++    /// Issues notes to keys this client does not derive, funded from the
++    /// wallet, and returns them with their unblinded signatures once the
++    /// federation has signed. The notes never enter the wallet: whoever holds
++    /// their keys spends them, for example by releasing them as e-cash.
++    ///
++    /// The tweaks must pass the key holder's recovery filter, or a recovery
++    /// would not find the notes.
++    pub async fn issue_external_notes(
++        &self,
++        requests: Vec<ExternalNoteRequest>,
++        custom_meta: Value,
++    ) -> Result<(OperationId, Vec<IssuedExternalNote>), ExternalNotesError> {
++        if requests.is_empty() {
++            return Err(ExternalNotesError::NoNotes);
++        }
++
++        let operation_id = OperationId::new_random();
++        let amount = requests
++            .iter()
++            .map(|request| request.denomination.amount())
++            .sum::<Amount>();
++
++        let issuance_requests = requests
++            .into_iter()
++            .map(|request| NoteIssuanceRequest {
++                denomination: request.denomination,
++                tweak: request.tweak,
++                spend_key: NoteSpendKey::Remote(RemoteKey {
++                    public_key: request.nonce,
++                    key_ref: vec![],
++                }),
++                blinding_key: request.blinding_key,
++            })
++            .collect();
++
++        let output = Self::issuance_output_bundle(
++            operation_id,
++            issuance_requests,
++            NoteDestination::External,
++            self.cfg.amount_unit,
++        );
++        let output = self.client_ctx.make_client_outputs(output);
++
++        let change = self
++            .client_ctx
++            .finalize_and_submit_transaction(
++                operation_id,
++                MintCommonInit::KIND.as_str(),
++                move |change_outpoint_range| MintOperationMeta::IssueExternal {
++                    change_outpoint_range,
++                    amount,
++                    custom_meta: custom_meta.clone(),
++                },
++                TransactionBuilder::new().with_outputs(output),
++            )
++            .await?;
++
++        // The issued notes are the transaction's first outputs; the change
++        // follows them.
++        self.await_output_sm_success(
++            operation_id,
++            OutPoint {
++                txid: change.txid(),
++                out_idx: 0,
++            },
++        )
++        .await
++        .map_err(|_| ExternalNotesError::IssuanceFailed)?;
++
++        Ok((operation_id, self.external_notes(operation_id).await))
++    }
++
++    /// The notes an [`Self::issue_external_notes`] operation issued, in the
++    /// order they were requested, once the federation has signed them.
++    pub async fn external_notes(&self, operation_id: OperationId) -> Vec<IssuedExternalNote> {
++        let mut notes = self
++            .client_ctx
++            .module_db()
++            .begin_transaction_nc()
++            .await
++            .find_by_prefix(&ExternalNoteOperationPrefix { operation_id })
++            .await
++            .map(|(key, note)| (key.index, note))
++            .collect::<Vec<_>>()
++            .await;
++
++        notes.sort_by_key(|(index, _)| *index);
++
++        notes.into_iter().map(|(_, note)| note).collect()
++    }
++
++    /// Spends notes whose keys an external signer holds into the wallet, for
++    /// example e-cash released earlier that its receiver never redeemed. Await
++    /// the outcome with [`Self::await_final_receive_operation_state`].
++    pub async fn claim_external_notes(
++        &self,
++        notes: Vec<(Note, RemoteKey)>,
++        custom_meta: Value,
++    ) -> Result<OperationId, ExternalNotesError> {
++        if notes.is_empty() {
++            return Err(ExternalNotesError::NoNotes);
++        }
++
++        let operation_id = OperationId::new_random();
++        let amount_unit = self.cfg.amount_unit;
++        let amount = notes
++            .iter()
++            .map(|(note, _)| note.denomination.amount())
++            .sum::<Amount>();
++
++        let (inputs, remote_keys): (Vec<_>, Vec<_>) = notes
++            .into_iter()
++            .map(|(note, key)| {
++                let input = ClientInput {
++                    input: MintInput::new_v0(note),
++                    keys: vec![],
++                    amounts: Amounts::new_custom(amount_unit, note.denomination.amount()),
++                };
++
++                (input, vec![key])
++            })
++            .unzip();
++
++        let input_sms = vec![ClientInputSM {
++            state_machines: Arc::new(move |range: OutPointRange| {
++                vec![MintClientStateMachines::Receive(ReceiveStateMachine {
++                    common: crate::receive::ReceiveSMCommon {
++                        operation_id,
++                        txid: range.txid(),
++                    },
++                    state: ReceiveSMState::Pending,
++                })]
++            }),
++        }];
++
++        let input = ClientInputBundle::new(inputs, input_sms).with_remote_keys(remote_keys);
++        let input = self.client_ctx.make_client_inputs(input);
++
++        self.client_ctx
++            .finalize_and_submit_transaction(
++                operation_id,
++                MintCommonInit::KIND.as_str(),
++                move |change_outpoint_range| MintOperationMeta::ClaimExternal {
++                    change_outpoint_range,
++                    amount,
++                    custom_meta: custom_meta.clone(),
++                },
++                TransactionBuilder::new().with_inputs(input),
++            )
++            .await?;
++
++        Ok(operation_id)
++    }
++
+     /// Await the final state of the receive operation.
+     pub async fn await_final_receive_operation_state(
+         &self,
+@@ -1272,7 +1628,7 @@ pub async fn await_final_receive_operation_state(
+     async fn remove_spendable_note(
+         &self,
+         dbtx: &mut DatabaseTransaction<'_>,
+-        spendable_note: &SpendableNote,
++        spendable_note: &WalletNote,
+     ) {
+         dbtx.remove_entry(&SpendableNoteKey(spendable_note.clone()))
+             .await
+@@ -1393,6 +1749,38 @@ pub enum SendECashError {
+     /// reason unrelated to funding.
+     #[error("The reissue transaction could not be submitted")]
+     Failed(#[source] TransactionSubmitError),
++    /// An external signer holds the wallet's spend keys, so the client cannot
++    /// hand notes out as e-cash itself; see
++    /// [`MintClientModule::issue_external_notes`].
++    #[error("An external signer holds the spend keys")]
++    SpendKeysHeldElsewhere,
++}
++
++/// A failure to issue or claim notes whose keys are outside the wallet.
++#[derive(Error, Debug)]
++#[non_exhaustive]
++pub enum ExternalNotesError {
++    /// No notes were given.
++    #[error("No notes were given")]
++    NoNotes,
++    /// The client's balance cannot fund the notes.
++    #[error("The client's balance is insufficient")]
++    InsufficientBalance,
++    /// The transaction could not be built, signed or submitted.
++    #[error("The transaction could not be submitted")]
++    Failed(#[source] TransactionSubmitError),
++    /// The federation rejected the transaction or did not issue the notes.
++    #[error("The federation did not issue the notes")]
++    IssuanceFailed,
++}
++
++impl From<TransactionSubmitError> for ExternalNotesError {
++    fn from(error: TransactionSubmitError) -> Self {
++        match error {
++            TransactionSubmitError::InsufficientFunds(_) => Self::InsufficientBalance,
++            other => Self::Failed(other),
++        }
++    }
+ }
+ 
+ /// A failure to receive e-cash by reissuing it.
+diff --git a/modules/fedimint-mintv2-client/src/output.rs b/modules/fedimint-mintv2-client/src/output.rs
+index 56a25fc..c493019 100644
+--- a/modules/fedimint-mintv2-client/src/output.rs
++++ b/modules/fedimint-mintv2-client/src/output.rs
+@@ -15,8 +15,8 @@
+ };
+ 
+ use crate::api::MintV2ModuleApi;
+-use crate::client_db::SpendableNoteKey;
+-use crate::{MintClientContext, NoteIssuanceRequest};
++use crate::client_db::{ExternalNoteKey, SpendableNoteKey};
++use crate::{IssuedExternalNote, MintClientContext, NoteIssuanceRequest};
+ 
+ #[derive(Debug, Clone, Eq, PartialEq, Hash, Decodable, Encodable)]
+ pub struct MintOutputStateMachine {
+@@ -29,6 +29,18 @@ pub struct OutputSMCommon {
+     pub operation_id: OperationId,
+     pub range: Option<OutPointRange>,
+     pub issuance_requests: Vec<NoteIssuanceRequest>,
++    /// Where the issued notes go.
++    pub destination: NoteDestination,
++}
++
++/// Where issued notes go.
++#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Decodable, Encodable)]
++pub enum NoteDestination {
++    /// Into the wallet's spendable notes.
++    Wallet,
++    /// To keys outside the wallet: the notes are kept for the operation that
++    /// issued them to read, and never counted in the balance.
++    External,
+ }
+ 
+ #[derive(Debug, Clone, Eq, PartialEq, Hash, Decodable, Encodable)]
+@@ -184,10 +196,38 @@ async fn transition_issuance(
+             } => (signatures, invalid),
+         };
+ 
+-        for (request, signature) in old_state.common.issuance_requests.iter().zip(signatures) {
+-            dbtx.module_tx()
+-                .insert_new_entry(&SpendableNoteKey(request.finalize(signature)), &())
+-                .await;
++        for (index, (request, signature)) in old_state
++            .common
++            .issuance_requests
++            .iter()
++            .zip(signatures)
++            .enumerate()
++        {
++            match old_state.common.destination {
++                NoteDestination::Wallet => {
++                    dbtx.module_tx()
++                        .insert_new_entry(&SpendableNoteKey(request.finalize(signature)), &())
++                        .await;
++                }
++                NoteDestination::External => {
++                    let note = request.finalize(signature);
++
++                    dbtx.module_tx()
++                        .insert_entry(
++                            &ExternalNoteKey {
++                                operation_id: old_state.common.operation_id,
++                                index: index as u64,
++                            },
++                            &IssuedExternalNote {
++                                denomination: note.denomination,
++                                tweak: request.tweak,
++                                nonce: note.nonce(),
++                                signature: note.signature,
++                            },
++                        )
++                        .await;
++                }
++            }
+         }
+ 
+         MintOutputStateMachine {
+diff --git a/modules/fedimint-mintv2-tests/tests/db/mod.rs b/modules/fedimint-mintv2-tests/tests/db/mod.rs
+index b76c753..f7a1832 100644
+--- a/modules/fedimint-mintv2-tests/tests/db/mod.rs
++++ b/modules/fedimint-mintv2-tests/tests/db/mod.rs
+@@ -10,6 +10,7 @@
+ use fedimint_core::secp256k1::{Keypair, SECP256K1};
+ use fedimint_core::{OutPoint, TransactionId};
+ use fedimint_logging::TracingSetup;
++use fedimint_mintv2_client::NoteSpendKey;
+ use fedimint_mintv2_client::client_db::{
+     self, RecoveryState, RecoveryStateKey, SpendableNoteKey, SpendableNotePrefix,
+ };
+@@ -61,7 +62,7 @@ fn issuance_request(seed: u8) -> NoteIssuanceRequest {
+     NoteIssuanceRequest {
+         denomination: DENOMINATION,
+         tweak: [seed; 16],
+-        keypair: keypair(seed),
++        spend_key: NoteSpendKey::Local(keypair(seed)),
+         blinding_key: BlindingKey(bls12_381::Scalar::from(u64::from(seed) + 1)),
+     }
+ }
+@@ -274,7 +275,7 @@ async fn create_client_db_with_v0_data(db: Database) {
+     dbtx.insert_new_entry(&DatabaseVersionKeyV0, &DatabaseVersion(0))
+         .await;
+ 
+-    dbtx.insert_new_entry(&SpendableNoteKey(spendable_note(1)), &())
++    dbtx.insert_new_entry(&SpendableNoteKey(spendable_note(1).into()), &())
+         .await;
+ 
+     dbtx.insert_new_entry(
+@@ -327,7 +328,7 @@ async fn test_client_db_migrations() -> anyhow::Result<()> {
+                             notes.len()
+                         );
+                         ensure!(
+-                            notes[0].0.0 == spendable_note(1),
++                            notes[0].0.0 == spendable_note(1).into(),
+                             "the spendable note must round-trip unchanged"
+                         );
+                     }

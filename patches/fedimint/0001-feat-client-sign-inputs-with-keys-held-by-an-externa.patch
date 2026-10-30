@@ -1,0 +1,753 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Om Swami <reach.oms2004@gmail.com>
+Date: Fri, 30 Oct 2026 21:44:13 +0530
+Subject: [PATCH 1/3] feat(client): sign inputs with keys held by an external
+ signer
+
+A module whose spend keys live elsewhere, such as on a hardware signer with
+a trusted display, marks inputs with `ClientInputBundle::with_remote_keys`.
+The client then builds the transaction unsigned, computes the operation
+meta, and asks the `TransactionSigner` set with
+`ClientBuilder::with_transaction_signer` for one signature per remote key,
+checking each before it submits.
+
+`TransactionBuilder::build` keeps signing local keys as before;
+`build_unsigned` and `UnsignedTransaction::sign` split it for remote keys.
+---
+ fedimint-client-module/src/error.rs           |  13 ++
+ .../src/transaction/builder.rs                | 193 ++++++++++++++++--
+ fedimint-client-module/src/transaction/mod.rs |   2 +
+ .../src/transaction/signer.rs                 |  98 +++++++++
+ fedimint-client/src/client.rs                 | 145 +++++++++++--
+ fedimint-client/src/client/builder.rs         |  14 +-
+ 6 files changed, 434 insertions(+), 31 deletions(-)
+ create mode 100644 fedimint-client-module/src/transaction/signer.rs
+
+diff --git a/fedimint-client-module/src/error.rs b/fedimint-client-module/src/error.rs
+index c090ff0..495983c 100644
+--- a/fedimint-client-module/src/error.rs
++++ b/fedimint-client-module/src/error.rs
+@@ -143,6 +143,19 @@ pub enum TransactionSubmitError {
+     /// The primary module holds too little balance to fund the transaction.
+     #[error("Insufficient funds")]
+     InsufficientFunds(#[from] InsufficientBalanceError),
++
++    /// An input's keys are held by an external signer, and the client has no
++    /// [`TransactionSigner`](crate::transaction::TransactionSigner).
++    #[error("The transaction needs an external signer, and the client has none")]
++    NoTransactionSigner,
++
++    /// The external signer did not sign.
++    #[error("The external signer did not sign")]
++    Signer(#[source] crate::transaction::TransactionSignerError),
++
++    /// The external signer's signatures do not complete the transaction.
++    #[error("The external signer's signatures do not complete the transaction")]
++    RemoteSignatures(#[source] crate::transaction::RemoteSignatureError),
+ }
+ 
+ impl TransactionSubmitError {
+diff --git a/fedimint-client-module/src/transaction/builder.rs b/fedimint-client-module/src/transaction/builder.rs
+index 4d99cef..282ee04 100644
+--- a/fedimint-client-module/src/transaction/builder.rs
++++ b/fedimint-client-module/src/transaction/builder.rs
+@@ -5,7 +5,7 @@
+ 
+ use bitcoin::key::Keypair;
+ use bitcoin::secp256k1;
+-use fedimint_core::Amount;
++use bitcoin::secp256k1::schnorr;
+ use fedimint_core::core::{
+     DynInput, DynOutput, IInput, IOutput, IntoDynInstance, ModuleInstanceId,
+ };
+@@ -13,12 +13,15 @@
+ use fedimint_core::module::Amounts;
+ use fedimint_core::task::{MaybeSend, MaybeSync};
+ use fedimint_core::transaction::{Transaction, TransactionSignature};
++use fedimint_core::{Amount, TransactionId};
+ use fedimint_logging::LOG_CLIENT;
+ use itertools::multiunzip;
+ use rand::{CryptoRng, Rng, RngCore};
+ use secp256k1::Secp256k1;
++use thiserror::Error;
+ use tracing::warn;
+ 
++use super::RemoteKey;
+ use crate::error::TransactionSubmitError;
+ use crate::module::{IdxRange, OutPointRange, StateGenerator};
+ use crate::sm::{self, DynState};
+@@ -90,6 +93,9 @@ fn operation_id(&self) -> fedimint_core::core::OperationId {
+ #[derive(Clone, Debug)]
+ pub struct ClientInputBundle<I = DynInput, S = DynState> {
+     pub(crate) inputs: Vec<ClientInput<I>>,
++    /// For every input, the keys an external signer holds; see
++    /// [`Self::with_remote_keys`].
++    pub(crate) remote_keys: Vec<Vec<RemoteKey>>,
+     pub(crate) sm_gens: Vec<ClientInputSM<S>>,
+ }
+ 
+@@ -104,6 +110,7 @@ pub fn new_no_sm(inputs: Vec<ClientInput<I>>) -> Self {
+             warn!(target: LOG_CLIENT, "Empty input bundle will be illegal in the future");
+         }
+         Self {
++            remote_keys: vec![vec![]; inputs.len()],
+             inputs,
+             sm_gens: vec![],
+         }
+@@ -116,7 +123,11 @@ impl<I, S> ClientInputBundle<I, S>
+     S: sm::IState + MaybeSend + MaybeSync + 'static,
+ {
+     pub fn new(inputs: Vec<ClientInput<I>>, sm_gens: Vec<ClientInputSM<S>>) -> Self {
+-        Self { inputs, sm_gens }
++        Self {
++            remote_keys: vec![vec![]; inputs.len()],
++            inputs,
++            sm_gens,
++        }
+     }
+ 
+     pub fn sms(&self) -> &[ClientInputSM<S>] {
+@@ -125,6 +136,7 @@ pub fn sms(&self) -> &[ClientInputSM<S>] {
+ 
+     pub fn into_instanceless(self) -> InstancelessDynClientInputBundle {
+         InstancelessDynClientInputBundle {
++            remote_keys: self.remote_keys,
+             inputs: self
+                 .inputs
+                 .into_iter()
+@@ -150,6 +162,29 @@ pub fn inputs(&self) -> &[ClientInput<I>] {
+         &self.inputs
+     }
+ 
++    /// Marks keys of the inputs as held by an external signer:
++    /// `remote_keys[i]` signs input `i`, after its local
++    /// [`ClientInput::keys`]. A transaction with remote keys is signed by the
++    /// client's [`TransactionSigner`](super::TransactionSigner).
++    ///
++    /// # Panics
++    ///
++    /// If `remote_keys` does not hold one entry per input.
++    pub fn with_remote_keys(mut self, remote_keys: Vec<Vec<RemoteKey>>) -> Self {
++        assert_eq!(
++            remote_keys.len(),
++            self.inputs.len(),
++            "Remote keys need one entry per input"
++        );
++        self.remote_keys = remote_keys;
++        self
++    }
++
++    /// For every input, the keys an external signer holds.
++    pub fn remote_keys(&self) -> &[Vec<RemoteKey>] {
++        &self.remote_keys
++    }
++
+     pub fn is_empty(&self) -> bool {
+         // Notably, sm_gen will not be called when inputs are empty anyway
+         self.inputs.is_empty()
+@@ -193,6 +228,7 @@ impl<I, S> IntoDynInstance for ClientInputBundle<I, S>
+ 
+     fn into_dyn(self, module_instance_id: ModuleInstanceId) -> ClientInputBundle {
+         ClientInputBundle {
++            remote_keys: self.remote_keys,
+             inputs: self
+                 .inputs
+                 .into_iter()
+@@ -213,6 +249,7 @@ impl IntoDynInstance for InstancelessDynClientInputBundle {
+ 
+     fn into_dyn(self, module_instance_id: ModuleInstanceId) -> ClientInputBundle {
+         ClientInputBundle {
++            remote_keys: self.remote_keys,
+             inputs: self
+                 .inputs
+                 .into_iter()
+@@ -677,27 +714,54 @@ pub fn with_outputs(mut self, outputs: ClientOutputBundle) -> Self {
+         self
+     }
+ 
++    /// Builds and signs the transaction with the inputs' local keys.
++    ///
++    /// # Panics
++    ///
++    /// If an input has remote keys; such a transaction is built with
++    /// [`Self::build_unsigned`] and signed with the signatures of an external
++    /// signer.
+     pub fn build<C, R: RngCore + CryptoRng>(
+         self,
+         secp_ctx: &Secp256k1<C>,
+-        mut rng: R,
++        rng: R,
+     ) -> (Transaction, Vec<DynState>)
+     where
+         C: secp256k1::Signing + secp256k1::Verification,
+     {
++        self.build_unsigned(rng)
++            .sign(secp_ctx, vec![])
++            .expect("Transactions with remote keys are built with build_unsigned")
++    }
++
++    /// Puts the transaction together without signing it, so that an external
++    /// signer can sign [`UnsignedTransaction::txid`] before
++    /// [`UnsignedTransaction::sign`] completes it.
++    pub fn build_unsigned<R: RngCore + CryptoRng>(self, mut rng: R) -> UnsignedTransaction {
+         // `input_idx_to_bundle_idx[input_idx]` stores the index of a bundle the input
+         // at `input_idx` comes from, so we can call state machines of the
+         // corresponding bundle for every input bundle. It is always
+         // monotonically increasing, e.g. `[0, 0, 1, 2, 2, 2, 4]`
+-        let (input_idx_to_bundle_idx, inputs, input_keys): (Vec<_>, Vec<_>, Vec<_>) = multiunzip(
++        let (input_idx_to_bundle_idx, inputs, local_keys, remote_keys): (
++            Vec<_>,
++            Vec<_>,
++            Vec<_>,
++            Vec<_>,
++        ) = multiunzip(
+             self.inputs
+                 .iter()
+                 .enumerate()
+                 .flat_map(|(bundle_idx, bundle)| {
+-                    bundle
+-                        .inputs
+-                        .iter()
+-                        .map(move |input| (bundle_idx, input.input.clone(), input.keys.clone()))
++                    bundle.inputs.iter().zip(&bundle.remote_keys).map(
++                        move |(input, remote_keys)| {
++                            (
++                                bundle_idx,
++                                input.input.clone(),
++                                input.keys.clone(),
++                                remote_keys.clone(),
++                            )
++                        },
++                    )
+                 }),
+         );
+         // `output_idx_to_bundle` works exactly like `input_idx_to_bundle_idx` above,
+@@ -716,19 +780,12 @@ pub fn build<C, R: RngCore + CryptoRng>(
+         let nonce: [u8; 8] = rng.r#gen();
+ 
+         let txid = Transaction::tx_hash_from_parts(&inputs, &outputs, nonce);
+-        let msg = secp256k1::Message::from_digest_slice(&txid[..]).expect("txid has right length");
+-
+-        let signatures = input_keys
+-            .iter()
+-            .flatten()
+-            .map(|keypair| secp_ctx.sign_schnorr(&msg, keypair))
+-            .collect();
+ 
+         let transaction = Transaction {
+             inputs,
+             outputs,
+             nonce,
+-            signatures: TransactionSignature::NaiveMultisig(signatures),
++            signatures: TransactionSignature::NaiveMultisig(vec![]),
+         };
+ 
+         let input_states = self
+@@ -764,7 +821,13 @@ pub fn build<C, R: RngCore + CryptoRng>(
+                     ))
+                 })
+             });
+-        (transaction, input_states.chain(output_states).collect())
++
++        UnsignedTransaction {
++            transaction,
++            local_keys,
++            remote_keys,
++            states: input_states.chain(output_states).collect(),
++        }
+     }
+ 
+     pub fn inputs(&self) -> impl Iterator<Item = &ClientInput> {
+@@ -776,6 +839,102 @@ pub fn outputs(&self) -> impl Iterator<Item = &ClientOutput> {
+     }
+ }
+ 
++/// A transaction with all its inputs and outputs, before signing.
++#[derive(Debug)]
++pub struct UnsignedTransaction {
++    /// The transaction, without signatures.
++    transaction: Transaction,
++    local_keys: Vec<Vec<Keypair>>,
++    remote_keys: Vec<Vec<RemoteKey>>,
++    states: Vec<DynState>,
++}
++
++impl UnsignedTransaction {
++    /// The id every signature commits to.
++    pub fn txid(&self) -> TransactionId {
++        self.transaction.tx_hash()
++    }
++
++    /// The transaction, without signatures.
++    pub fn transaction(&self) -> &Transaction {
++        &self.transaction
++    }
++
++    /// For every input, the keys an external signer must sign with.
++    pub fn remote_keys(&self) -> &[Vec<RemoteKey>] {
++        &self.remote_keys
++    }
++
++    /// Whether any input needs an external signer.
++    pub fn needs_remote_signatures(&self) -> bool {
++        self.remote_keys.iter().any(|keys| !keys.is_empty())
++    }
++
++    /// Signs with the local keys and inserts `remote_signatures`, one per
++    /// remote key in input order, after checking each against its key. Each
++    /// input carries the signatures of its local keys, then of its remote
++    /// keys.
++    pub fn sign<C>(
++        self,
++        secp_ctx: &Secp256k1<C>,
++        remote_signatures: Vec<schnorr::Signature>,
++    ) -> Result<(Transaction, Vec<DynState>), RemoteSignatureError>
++    where
++        C: secp256k1::Signing + secp256k1::Verification,
++    {
++        let expected = self.remote_keys.iter().map(Vec::len).sum::<usize>();
++        if remote_signatures.len() != expected {
++            return Err(RemoteSignatureError::Count {
++                expected,
++                got: remote_signatures.len(),
++            });
++        }
++
++        let txid = self.txid();
++        let msg = secp256k1::Message::from_digest_slice(&txid[..]).expect("txid has right length");
++        let mut remote_signatures = remote_signatures.into_iter().enumerate();
++        let mut signatures = Vec::new();
++
++        for (local_keys, remote_keys) in self.local_keys.iter().zip(&self.remote_keys) {
++            for keypair in local_keys {
++                signatures.push(secp_ctx.sign_schnorr(&msg, keypair));
++            }
++
++            for remote_key in remote_keys {
++                let (index, signature) = remote_signatures
++                    .next()
++                    .expect("The count was checked above");
++                secp_ctx
++                    .verify_schnorr(
++                        &signature,
++                        &msg,
++                        &remote_key.public_key.x_only_public_key().0,
++                    )
++                    .map_err(|_| RemoteSignatureError::Invalid { index })?;
++                signatures.push(signature);
++            }
++        }
++
++        let transaction = Transaction {
++            signatures: TransactionSignature::NaiveMultisig(signatures),
++            ..self.transaction
++        };
++
++        Ok((transaction, self.states))
++    }
++}
++
++/// Why an external signer's signatures cannot complete a transaction.
++#[derive(Debug, Clone, Error)]
++pub enum RemoteSignatureError {
++    /// The signer returned the wrong number of signatures.
++    #[error("Expected {expected} remote signatures, got {got}")]
++    Count { expected: usize, got: usize },
++    /// A signature does not verify against its key and the transaction id.
++    #[error("Remote signature {index} does not verify")]
++    Invalid { index: usize },
++}
++
+ /// Find the range of indexes in an monotonically increasing `arr`, that is
+ /// equal to `item`
+ fn find_range_of_matching_items(arr: &[usize], item: usize) -> Option<RangeInclusive<u64>> {
+diff --git a/fedimint-client-module/src/transaction/mod.rs b/fedimint-client-module/src/transaction/mod.rs
+index b2e9fc0..6d314ca 100644
+--- a/fedimint-client-module/src/transaction/mod.rs
++++ b/fedimint-client-module/src/transaction/mod.rs
+@@ -1,5 +1,7 @@
+ mod builder;
++mod signer;
+ mod sm;
+ 
+ pub use builder::*;
++pub use signer::*;
+ pub use sm::*;
+diff --git a/fedimint-client-module/src/transaction/signer.rs b/fedimint-client-module/src/transaction/signer.rs
+new file mode 100644
+index 0000000..2872e7c
+--- /dev/null
++++ b/fedimint-client-module/src/transaction/signer.rs
+@@ -0,0 +1,98 @@
++//! Signing transaction inputs with keys the client does not hold.
++//!
++//! A module whose spend keys live elsewhere, for example on a hardware signer
++//! with a trusted display, attaches [`RemoteKey`]s to its inputs with
++//! [`ClientInputBundle::with_remote_keys`](super::ClientInputBundle::with_remote_keys).
++//! When a transaction has remote keys, the client builds it without
++//! signatures, passes it to the [`TransactionSigner`] set on the client, and
++//! checks every signature it returns before submitting.
++
++use std::fmt::Debug;
++use std::sync::Arc;
++
++use bitcoin::secp256k1::{PublicKey, schnorr};
++use fedimint_core::core::{ModuleKind, OperationId};
++use fedimint_core::encoding::{Decodable, Encodable};
++use fedimint_core::task::{MaybeSend, MaybeSync};
++use fedimint_core::transaction::Transaction;
++use fedimint_core::{TransactionId, apply, async_trait_maybe_send};
++use serde::{Deserialize, Serialize};
++use thiserror::Error;
++
++/// A key held by an external signer.
++#[derive(Debug, Clone, PartialEq, Eq, Hash, Encodable, Decodable, Serialize, Deserialize)]
++pub struct RemoteKey {
++    /// The key the federation checks the input's signature against.
++    pub public_key: PublicKey,
++    /// What the signer needs to find or derive the secret key, in a format
++    /// defined by the module that creates the input.
++    pub key_ref: Vec<u8>,
++}
++
++/// The remote keys of one transaction input.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct RemoteSigningInput {
++    /// The kind of the module the input belongs to, which defines the format
++    /// of its keys' [`RemoteKey::key_ref`].
++    pub module_kind: ModuleKind,
++    /// The keys to sign with, after the input's local keys.
++    pub keys: Vec<RemoteKey>,
++}
++
++/// The operation a transaction belongs to, as the operation log records it.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct SigningOperation {
++    pub operation_type: String,
++    pub meta: serde_json::Value,
++}
++
++/// A transaction waiting for an external signer.
++#[derive(Debug, Clone)]
++pub struct SigningRequest {
++    pub operation_id: OperationId,
++    /// `None` for a transaction a state machine submits on its own, such as a
++    /// refund, which has no operation log entry of its own.
++    pub operation: Option<SigningOperation>,
++    /// The transaction, without signatures.
++    pub transaction: Transaction,
++    /// One entry per transaction input, in input order.
++    pub inputs: Vec<RemoteSigningInput>,
++}
++
++impl SigningRequest {
++    /// The transaction id every signature commits to.
++    pub fn txid(&self) -> TransactionId {
++        self.transaction.tx_hash()
++    }
++
++    /// How many signatures the signer must return.
++    pub fn signature_count(&self) -> usize {
++        self.inputs.iter().map(|input| input.keys.len()).sum()
++    }
++}
++
++/// Why an external signer did not sign.
++#[derive(Debug, Clone, Error)]
++pub enum TransactionSignerError {
++    /// The signer, or the person using it, declined.
++    #[error("The signer declined: {0}")]
++    Declined(String),
++    /// The signer could not be reached, or failed.
++    #[error("The signer is unavailable: {0}")]
++    Unavailable(String),
++}
++
++/// Signs transactions with keys the client does not hold.
++#[apply(async_trait_maybe_send!)]
++pub trait TransactionSigner: Debug + MaybeSend + MaybeSync + 'static {
++    /// Signs [`SigningRequest::txid`] with every remote key of
++    /// `request.inputs` and returns the BIP-340 signatures in that order.
++    ///
++    /// The client verifies each signature before it submits the transaction.
++    async fn sign(
++        &self,
++        request: &SigningRequest,
++    ) -> Result<Vec<schnorr::Signature>, TransactionSignerError>;
++}
++
++pub type DynTransactionSigner = Arc<dyn TransactionSigner>;
+diff --git a/fedimint-client/src/client.rs b/fedimint-client/src/client.rs
+index e9e6e63..ee973a6 100644
+--- a/fedimint-client/src/client.rs
++++ b/fedimint-client/src/client.rs
+@@ -27,8 +27,9 @@
+ use fedimint_client_module::sm::executor::{ActiveStateKey, IExecutor, InactiveStateKey};
+ use fedimint_client_module::sm::{ActiveStateMeta, DynState, InactiveStateMeta};
+ use fedimint_client_module::transaction::{
+-    FeeQuote, FeeQuoteRequest, TRANSACTION_SUBMISSION_MODULE_INSTANCE, TransactionBuilder,
+-    TxSubmissionStates, TxSubmissionStatesSM,
++    DynTransactionSigner, FeeQuote, FeeQuoteRequest, RemoteSigningInput, SigningOperation,
++    SigningRequest, TRANSACTION_SUBMISSION_MODULE_INSTANCE, TransactionBuilder, TxSubmissionStates,
++    TxSubmissionStatesSM, UnsignedTransaction,
+ };
+ use fedimint_client_module::{
+     AddStateMachinesResult, ClientModuleInstance, GetInviteCodeRequest, ModuleGlobalContextGen,
+@@ -124,6 +125,24 @@ struct FinalizedTransaction {
+     fees: Amounts,
+ }
+ 
++/// A balanced transaction, before signing.
++struct PreparedTransaction {
++    unsigned: UnsignedTransaction,
++    change_range: Range<u64>,
++    fees: Amounts,
++}
++
++impl PreparedTransaction {
++    /// The transaction id and the change outputs, which signing does not
++    /// change.
++    fn out_point_range(&self) -> OutPointRange {
++        OutPointRange::new(
++            self.unsigned.txid(),
++            IdxRange::from(self.change_range.clone()),
++        )
++    }
++}
++
+ /// Primary module candidates at specific priority level
+ #[derive(Default)]
+ pub(crate) struct PrimaryModuleCandidates {
+@@ -233,6 +252,8 @@ pub struct Client {
+     operation_log: OperationLog,
+     secp_ctx: Secp256k1<secp256k1::All>,
+     meta_service: Arc<MetaService>,
++    /// Signs inputs whose keys the client does not hold.
++    transaction_signer: Option<DynTransactionSigner>,
+ 
+     task_group: TaskGroup,
+ 
+@@ -747,13 +768,14 @@ pub async fn get_meta_expiration_timestamp(&self) -> Option<SystemTime> {
+         Some(UNIX_EPOCH + Duration::from_secs(ts))
+     }
+ 
+-    /// Adds funding to a transaction or removes over-funding via change.
++    /// Adds funding to a transaction or removes over-funding via change, and
++    /// puts it together without signing it.
+     async fn finalize_transaction(
+         &self,
+         dbtx: &mut DatabaseTransaction<'_>,
+         operation_id: OperationId,
+         mut partial_transaction: TransactionBuilder,
+-    ) -> Result<FinalizedTransaction, TransactionSubmitError> {
++    ) -> Result<PreparedTransaction, TransactionSubmitError> {
+         let (in_amounts, out_amounts) = self.transaction_builder_get_balance(&partial_transaction);
+ 
+         let mut added_inputs_bundles = vec![];
+@@ -845,7 +867,80 @@ async fn finalize_transaction(
+                 .expect("Inputs >= outputs for own transactions")
+         };
+ 
+-        let (transaction, states) = partial_transaction.build(&self.secp_ctx, thread_rng());
++        Ok(PreparedTransaction {
++            unsigned: partial_transaction.build_unsigned(thread_rng()),
++            change_range,
++            fees,
++        })
++    }
++
++    /// Signs a prepared transaction: with the inputs' local keys, and through
++    /// the client's
++    /// [`TransactionSigner`](fedimint_client_module::transaction::TransactionSigner)
++    /// for keys held elsewhere.
++    ///
++    /// An external signer may wait for a person to approve on another device,
++    /// so this can take long while the database transaction stays open.
++    async fn sign_transaction(
++        &self,
++        operation_id: OperationId,
++        operation: Option<SigningOperation>,
++        prepared: PreparedTransaction,
++    ) -> Result<FinalizedTransaction, TransactionSubmitError> {
++        let PreparedTransaction {
++            unsigned,
++            change_range,
++            fees,
++        } = prepared;
++
++        let remote_signatures = if unsigned.needs_remote_signatures() {
++            let signer = self
++                .transaction_signer
++                .as_ref()
++                .ok_or(TransactionSubmitError::NoTransactionSigner)?;
++
++            let inputs = unsigned
++                .transaction()
++                .inputs
++                .iter()
++                .zip(unsigned.remote_keys())
++                .map(|(input, keys)| RemoteSigningInput {
++                    module_kind: self
++                        .modules
++                        .get_with_kind(input.module_instance_id())
++                        .expect("Every input belongs to one of the client's modules")
++                        .0
++                        .clone(),
++                    keys: keys.clone(),
++                })
++                .collect();
++
++            let request = SigningRequest {
++                operation_id,
++                operation,
++                transaction: unsigned.transaction().clone(),
++                inputs,
++            };
++
++            debug!(
++                target: LOG_CLIENT,
++                txid = %request.txid(),
++                operation_id = %operation_id.fmt_short(),
++                signatures = request.signature_count(),
++                "Asking the external signer to sign",
++            );
++
++            signer
++                .sign(&request)
++                .await
++                .map_err(TransactionSubmitError::Signer)?
++        } else {
++            vec![]
++        };
++
++        let (transaction, states) = unsigned
++            .sign(&self.secp_ctx, remote_signatures)
++            .map_err(TransactionSubmitError::RemoteSignatures)?;
+ 
+         Ok(FinalizedTransaction {
+             transaction,
+@@ -1088,17 +1183,26 @@ pub async fn finalize_and_submit_transaction_dbtx<F, M>(
+             return Err(OperationAlreadyExistsError { operation_id }.into());
+         }
+ 
++        let prepared = self
++            .finalize_transaction(&mut dbtx.to_ref_nc(), operation_id, tx_builder)
++            .await?;
++
++        // The meta is known before signing, so an external signer can see what
++        // the transaction is for.
++        let operation_meta = serde_json::to_value(operation_meta_gen(prepared.out_point_range()))
++            .expect("Operation meta serializes to JSON");
++
++        let operation = SigningOperation {
++            operation_type: operation_type.to_owned(),
++            meta: operation_meta.clone(),
++        };
++
+         let out_point_range = self
+-            .finalize_and_submit_transaction_inner(dbtx, operation_id, tx_builder)
++            .sign_and_submit_transaction(dbtx, operation_id, Some(operation), prepared)
+             .await?;
+ 
+         self.operation_log()
+-            .add_operation_log_entry_dbtx(
+-                dbtx,
+-                operation_id,
+-                operation_type,
+-                operation_meta_gen(out_point_range),
+-            )
++            .add_operation_log_entry_dbtx(dbtx, operation_id, operation_type, operation_meta)
+             .await;
+ 
+         Ok(out_point_range)
+@@ -1109,6 +1213,21 @@ async fn finalize_and_submit_transaction_inner(
+         dbtx: &mut DatabaseTransaction<'_>,
+         operation_id: OperationId,
+         tx_builder: TransactionBuilder,
++    ) -> Result<OutPointRange, TransactionSubmitError> {
++        let prepared = self
++            .finalize_transaction(&mut dbtx.to_ref_nc(), operation_id, tx_builder)
++            .await?;
++
++        self.sign_and_submit_transaction(dbtx, operation_id, None, prepared)
++            .await
++    }
++
++    async fn sign_and_submit_transaction(
++        &self,
++        dbtx: &mut DatabaseTransaction<'_>,
++        operation_id: OperationId,
++        operation: Option<SigningOperation>,
++        prepared: PreparedTransaction,
+     ) -> Result<OutPointRange, TransactionSubmitError> {
+         let FinalizedTransaction {
+             transaction,
+@@ -1116,7 +1235,7 @@ async fn finalize_and_submit_transaction_inner(
+             change_range,
+             fees,
+         } = self
+-            .finalize_transaction(&mut dbtx.to_ref_nc(), operation_id, tx_builder)
++            .sign_transaction(operation_id, operation, prepared)
+             .await?;
+ 
+         if transaction.consensus_encode_to_vec().len() > Transaction::MAX_TX_SIZE {
+diff --git a/fedimint-client/src/client/builder.rs b/fedimint-client/src/client/builder.rs
+index cdca4e8..4f777a8 100644
+--- a/fedimint-client/src/client/builder.rs
++++ b/fedimint-client/src/client/builder.rs
+@@ -25,7 +25,8 @@
+ };
+ use fedimint_client_module::secret::{DeriveableSecretClientExt as _, get_default_client_secret};
+ use fedimint_client_module::transaction::{
+-    TRANSACTION_SUBMISSION_MODULE_INSTANCE, TxSubmissionContext, tx_submission_sm_decoder,
++    DynTransactionSigner, TRANSACTION_SUBMISSION_MODULE_INSTANCE, TxSubmissionContext,
++    tx_submission_sm_decoder,
+ };
+ use fedimint_client_module::{AdminCreds, ModuleRecoveryStarted};
+ use fedimint_connectors::ConnectorRegistry;
+@@ -130,6 +131,7 @@ pub struct ClientBuilder {
+     iroh_enable_next: bool,
+     bitcoind_rpc_factory: Option<BitcoindRpcFactory>,
+     bitcoind_rpc_no_chain_id_factory: Option<BitcoindRpcNoChainIdFactory>,
++    transaction_signer: Option<DynTransactionSigner>,
+ }
+ 
+ impl ClientBuilder {
+@@ -154,6 +156,7 @@ pub(crate) fn new() -> Self {
+             iroh_enable_next: true,
+             bitcoind_rpc_factory: None,
+             bitcoind_rpc_no_chain_id_factory: None,
++            transaction_signer: None,
+         }
+     }
+ 
+@@ -173,6 +176,7 @@ pub(crate) fn from_existing(client: &Client) -> Self {
+             bitcoind_rpc_factory: None,
+             // Clone the no-chain-id factory from the existing client
+             bitcoind_rpc_no_chain_id_factory: client.user_bitcoind_rpc_no_chain_id.clone(),
++            transaction_signer: client.transaction_signer.clone(),
+         }
+     }
+ 
+@@ -186,6 +190,13 @@ pub fn with_module<M: ClientModuleInit>(&mut self, module_init: M) {
+         self.module_inits.attach(module_init);
+     }
+ 
++    /// Sign inputs whose keys the client does not hold with `signer`, for
++    /// example a hardware device. Modules mark such inputs with
++    /// [`ClientInputBundle::with_remote_keys`](fedimint_client_module::transaction::ClientInputBundle::with_remote_keys).
++    pub fn with_transaction_signer(&mut self, signer: DynTransactionSigner) {
++        self.transaction_signer = Some(signer);
++    }
++
+     pub fn stopped(&mut self) {
+         self.stopped = true;
+     }
+@@ -1092,6 +1103,7 @@ async fn build_stopped(
+             operation_log: OperationLog::new(db.clone()),
+             client_recovery_status_receiver,
+             meta_service: self.meta_service,
++            transaction_signer: self.transaction_signer,
+             iroh_enable_dht: self.iroh_enable_dht,
+             iroh_enable_next,
+             user_bitcoind_rpc,

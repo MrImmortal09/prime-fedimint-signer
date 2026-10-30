@@ -1,0 +1,38 @@
+[package]
+name = "fps-wallet"
+description = "The phone side of the Passport Prime Fedimint signer: watch-only fedimint client keys and the bridge to the device"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-trait = "0.1"
+bitcoin.workspace = true
+ciborium.workspace = true
+fedimint-client.workspace = true
+fedimint-client-module.workspace = true
+fedimint-core.workspace = true
+fedimint-lnv2-client.workspace = true
+fedimint-lnv2-common.workspace = true
+fedimint-mintv2-client.workspace = true
+fedimint-mintv2-common.workspace = true
+fedimint-walletv2-common.workspace = true
+fps-protocol.workspace = true
+fps-signer-core.workspace = true
+fps-transport.workspace = true
+serde_json.workspace = true
+tbs.workspace = true
+thiserror = "2"
+tokio.workspace = true
+
+[dev-dependencies]
+fedimint-dummy-client.workspace = true
+fedimint-dummy-server.workspace = true
+fedimint-mintv2-server.workspace = true
+fedimint-testing.workspace = true
+fedimint-api-client.workspace = true
+fedimint-connectors.workspace = true
+fedimint-lnv2-server.workspace = true
+fps-signer.workspace = true
+lightning-invoice = { version = "0.33.2", features = ["std"] }

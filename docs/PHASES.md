@@ -1,14 +1,15 @@
 # Phases
 
-Each phase maps to a stage of [`plan/05_EXECUTION_PLAN.md`](plan/05_EXECUTION_PLAN.md). Stage 1 is
-split into 1A (host-testable crates) and 1B (the KeyOS app) because it is the largest stage.
+Each phase maps to a stage of [`plan/05_EXECUTION_PLAN.md`](plan/05_EXECUTION_PLAN.md). Stages 1
+and 2 are each split in two because they are the largest.
 
 | Phase | Plan stage | Scope | State |
 |---|---|---|---|
 | 0 | Stage 0 | Repository, plan, device toolchain spike, CI | Done |
 | 1A | Stage 1 | Wire protocol, signer core, policy, signer service, golden vectors | Done |
 | 1B | Stage 1 | KeyOS app on the simulator with the file bridge | Done |
-| 2 | Stage 2 | fedimint client signer boundary, end to end on a local federation | Next |
+| 2A | Stage 2 | fedimint signer boundary and the watch-only client, on an in-process federation | Done |
+| 2B | Stage 2 | fedimint-sdk bindings, devimint and the simulator, end to end | Next |
 | 3 | Stage 3 | Phone app, QR/UR, hardware | Planned |
 | 4 | Stage 4 | Bluetooth through a KeyOS QuantumLink patch | Planned |
 | 5 | Stage 5 | NFC tap-to-approve (optional) | Planned |
@@ -218,3 +219,53 @@ outgoing notes the scenario stages and reclaims, so releases are tested with rea
 - Scanning through a camera. The simulator's camera is the host webcam, so the QR path has unit tests
   only until hardware.
 - The settings screen switches the PIN threshold on and off but does not edit amounts.
+
+## Phase 2A: the fedimint signer boundary
+
+### Delivered
+
+| Path | What it is |
+|---|---|
+| `patches/fedimint/` | Three patches to fedimint v0.13.0-beta.1: the client signs through an external signer; mint v2 notes whose keys are held elsewhere, plus notes issued to and claimed back from external keys; LNv2 refund keys held elsewhere. Design and limitations: [`FEDIMINT_PATCHES.md`](FEDIMINT_PATCHES.md) |
+| `scripts/fedimint-checkout.sh` | Clones fedimint at the tag into `third_party/fedimint` and applies the series; `--export` writes changes back |
+| `wallet/` (`fps-wallet`) | The phone side. `DeviceKeys` pairs a federation with Prime and then serves as the client's note keys, refund keys and transaction signer. `device` reaches Prime over any transport, the simulator file bridge included. `send` stages, releases and reclaims ecash through Prime's outgoing branch |
+| `crates/` | Prime now also authorises the LNv2 gateway for each payment it signs (`SignedTransaction::gateway_auth`) |
+
+How a watch-only wallet works:
+
+1. **Pairing.** The phone builds the federation's descriptor from its client config. Prime approves
+   the federation, then the export of its view material.
+2. **Receiving.** The phone derives every nonce and blinding key from the view material, so incoming
+   ecash, Lightning and deposits land in Prime's tree without Prime.
+3. **Spending.** The patched client builds the transaction, and `DeviceKeys` turns it into a sign
+   request. The intent comes from the operation: the invoice of a Lightning payment, a withdrawal, a
+   prepared send, a reclaim, or a refund. Prime analyses the bytes, the person approves, and the
+   client checks the signatures before submitting.
+4. **Ecash.** Prime stages notes on its outgoing branch, then releases them as a token, on its
+   screen or to the phone. An unredeemed token comes back with a reclaim.
+
+### Findings
+
+- **LNv2 needs the refund key twice.** Beyond refunds, the gateway pays only with the refund key's
+  signature over the invoice hash. Prime now returns it with the funding signatures, computed from
+  the invoice it checked.
+- **Receives must stay off the device.** fedimint's mint module consolidates and rebalances notes in
+  any transaction it balances, receives included. A watch-only wallet doing that mixes a token's keys
+  with Prime's, which Prime rightly refuses. The patch has such a wallet touch its notes only when a
+  transaction needs funding.
+- **The signer needs the operation before signing.** fedimint wrote the operation meta after
+  building the transaction; the patch computes it first, so the invoice reaches Prime.
+- **A refund cannot fail just because Prime is away.** A state machine claiming a refund now waits
+  and retries instead of panicking.
+- **fedimint's test fixtures need fedimint's lockfile.** A fresh dependency resolution picked an
+  `electrum-client` that fedimint's LDK fork does not build with, so `wallet/Cargo.lock` starts from
+  fedimint's.
+
+### Still open
+
+- fedimint-sdk with UniFFI bindings, devimint with a real gateway, and the simulator over the bridge
+  (Phase 2B).
+- On-chain withdrawal from the watch-only wallet. Prime signs withdrawals (Phases 1A and 1B); the
+  phone side is tested once devimint runs (Phase 2B).
+- Re-authorising a gateway after an app restart interrupts a payment.
+- Database migrations for the changed encodings, before anything goes upstream (Phase 6).

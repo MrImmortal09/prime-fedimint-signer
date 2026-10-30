@@ -1,0 +1,48 @@
+# The phone side of the signer, against fedimint with this repository's patch series applied.
+# `scripts/fedimint-checkout.sh` prepares the fedimint tree in `third_party/fedimint`; every
+# fedimint crate comes from there, so no crates.io copy of a patched crate sneaks in.
+[workspace]
+resolver = "2"
+members = ["fps-wallet"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+fedimint-api-client = { path = "../third_party/fedimint/fedimint-api-client" }
+fedimint-client = { path = "../third_party/fedimint/fedimint-client" }
+fedimint-client-module = { path = "../third_party/fedimint/fedimint-client-module" }
+fedimint-connectors = { path = "../third_party/fedimint/fedimint-connectors" }
+fedimint-core = { path = "../third_party/fedimint/fedimint-core" }
+fedimint-derive-secret = { path = "../third_party/fedimint/crypto/derive-secret" }
+fedimint-dummy-client = { path = "../third_party/fedimint/modules/fedimint-dummy-client" }
+fedimint-dummy-common = { path = "../third_party/fedimint/modules/fedimint-dummy-common" }
+fedimint-dummy-server = { path = "../third_party/fedimint/modules/fedimint-dummy-server" }
+fedimint-lnv2-client = { path = "../third_party/fedimint/modules/fedimint-lnv2-client" }
+fedimint-lnv2-common = { path = "../third_party/fedimint/modules/fedimint-lnv2-common" }
+fedimint-lnv2-server = { path = "../third_party/fedimint/modules/fedimint-lnv2-server" }
+fedimint-logging = { path = "../third_party/fedimint/fedimint-logging" }
+fedimint-mintv2-client = { path = "../third_party/fedimint/modules/fedimint-mintv2-client" }
+fedimint-mintv2-common = { path = "../third_party/fedimint/modules/fedimint-mintv2-common" }
+fedimint-mintv2-server = { path = "../third_party/fedimint/modules/fedimint-mintv2-server" }
+fedimint-testing = { path = "../third_party/fedimint/fedimint-testing" }
+fedimint-walletv2-client = { path = "../third_party/fedimint/modules/fedimint-walletv2-client" }
+fedimint-walletv2-common = { path = "../third_party/fedimint/modules/fedimint-walletv2-common" }
+fedimint-walletv2-server = { path = "../third_party/fedimint/modules/fedimint-walletv2-server" }
+tbs = { package = "fedimint-tbs", path = "../third_party/fedimint/crypto/tbs" }
+
+fps-protocol = { path = "../crates/protocol" }
+fps-signer = { path = "../crates/signer" }
+fps-signer-core = { path = "../crates/signer-core" }
+fps-transport = { path = "../crates/transport" }
+
+anyhow = "1"
+bitcoin = "0.32"
+ciborium = "0.2"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+
+[profile.dev.package."*"]
+opt-level = 2

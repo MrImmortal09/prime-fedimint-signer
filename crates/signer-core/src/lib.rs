@@ -29,4 +29,4 @@ pub use federation::Federation;
 pub use keys::{FederationKeys, ViewKeys};
 pub use release::{plan_release, ReleasePlan};
 pub use review::Review;
-pub use sign::sign_transaction;
+pub use sign::{gateway_auth, sign_transaction};

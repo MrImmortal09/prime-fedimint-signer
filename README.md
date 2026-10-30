@@ -17,7 +17,8 @@ followed by a separate test commit.
 | 0 | Repository, plan, device toolchain spike, CI | Done |
 | 1A | Wire protocol, signer core, policy, signer service, golden vectors | Done |
 | 1B | KeyOS app on the simulator with the file bridge | Done |
-| 2 | fedimint client signer boundary, end to end on a local federation | Next |
+| 2A | fedimint signer boundary and the watch-only client, on an in-process federation | Done |
+| 2B | fedimint-sdk bindings, devimint and the simulator, end to end | Next |
 | 3 | Phone app and QR/UR on hardware | Planned |
 | 4 | Bluetooth through a KeyOS QuantumLink patch | Planned |
 | 5 | NFC tap-to-approve (optional) | Planned |
@@ -36,6 +37,8 @@ followed by a separate test commit.
 | `crates/signer/` | `fps-signer`: the service the KeyOS app embeds |
 | `crates/transport/` | `fps-transport`: animated QR framing and the simulator file bridge, both ends |
 | `prime-app/` | The KeyOS app, built with the Foundation SDK |
+| `wallet/` | `fps-wallet`: the phone side, a watch-only fedimint client with Prime as its signer |
+| `patches/fedimint/` | The patch series that gives fedimint's client a signer boundary ([`docs/FEDIMINT_PATCHES.md`](docs/FEDIMINT_PATCHES.md)) |
 | `devtools/` | Host-only: golden vectors and cross-checks against the real fedimint crates |
 | `spikes/xous-crypto/` | Phase 0 spike: the signer's crypto and encoding dependencies, built for the device |
 | `tools/sim-e2e/` | The end-to-end driver for the app in the simulator |
@@ -63,6 +66,16 @@ use the SDK's pinned nightly and the `armv7a-unknown-xous-elf` target:
 
 ```sh
 scripts/device-build.sh -p fps-signer -p fps-signer-core -p fps-protocol -p fps-policy --release
+```
+
+### The phone side
+
+The watch-only client builds against fedimint with the patch series applied. The first build takes
+a while, because fedimint's test fixtures run a whole federation in the test process:
+
+```sh
+scripts/fedimint-checkout.sh
+cargo test --manifest-path wallet/Cargo.toml
 ```
 
 ### The KeyOS app

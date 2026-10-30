@@ -122,6 +122,7 @@ fn responses() -> Vec<Response> {
         Response::Signed(SignedTransaction {
             txid: FixedBytes([8; 32]),
             signatures: vec![FixedBytes([9; 64]), FixedBytes([10; 64])],
+            gateway_auth: None,
         }),
         Response::Released(Released {
             amount_msat: 1024,

@@ -98,12 +98,20 @@ durably before the answer leaves it.
 | `FederationImported` | `federation`, `name`, guardian count, module kinds |
 | `ViewMaterial` | `federation`, `key_scheme`, `spend_key` (33), `chain_code` (32), `view_secret` (32) |
 | `OutgoingNonces` | One 33-byte nonce per requested note |
-| `Signed` | `txid`, signatures |
+| `Signed` | `txid`, signatures, and for a Lightning payment `gateway_auth` |
 | `Released` | `amount_msat`, `notes`, `token` |
 | `Status` | Released notes, recent request ids, today's outflow, the waiting request |
 | `Pending` | The request is waiting for the user |
 | `Cancelled` | |
 | `Rejected` | `code` and `message` |
+
+### Gateway authorisation
+
+An LNv2 gateway pays only if the request carries the contract refund key's BIP-340 signature over
+the SHA-256 of fedimint's encoding of `LightningInvoice::Bolt11(invoice)`. Prime holds the refund
+key, so when it signs a `PayInvoice` transaction it adds that signature as
+`SignedTransaction::gateway_auth`. It signs only the hash of the invoice it checked against the
+contract, never a hash the phone supplies.
 
 ### Rejection codes
 

@@ -24,8 +24,8 @@ use fps_signer_core::analysis::{InputKind, OutputSummary};
 use fps_signer_core::encoding::Encode;
 use fps_signer_core::federation::short_hex;
 use fps_signer_core::{
-    analyze, plan_release, sign_transaction, Analysis, AnalysisOptions, Federation, FederationKeys,
-    ReleasePlan, Review, SignerError,
+    analyze, gateway_auth, plan_release, sign_transaction, Analysis, AnalysisOptions, Federation,
+    FederationKeys, ReleasePlan, Review, SignerError,
 };
 pub use state::{FederationNote, FundedContract, State, StoredResult, MAX_STORED_RESULTS};
 use zeroize::Zeroizing;
@@ -685,10 +685,19 @@ impl<S: Storage, P: Platform> Signer<S, P> {
             platform.random_32()
         })
         .map_err(ExecuteError::Rejected)?;
+        let gateway_auth = analysis
+            .lightning
+            .as_ref()
+            .map(|payment| {
+                gateway_auth(&self.loaded[index].keys, payment, self.platform.random_32())
+            })
+            .transpose()
+            .map_err(ExecuteError::Rejected)?;
         let today = self.today();
         let response = Response::Signed(SignedTransaction {
             txid: FixedBytes(analysis.txid),
             signatures: signatures.into_iter().map(FixedBytes).collect(),
+            gateway_auth: gateway_auth.map(FixedBytes),
         });
         let reply = self.finish(id, response, |next| {
             next.policy_state.record(today, analysis.outflow_msat());

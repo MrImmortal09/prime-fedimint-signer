@@ -279,6 +279,10 @@ pub struct SignedTransaction {
     pub txid: FixedBytes<32>,
     /// One BIP-340 signature per input, in input order.
     pub signatures: Vec<FixedBytes<64>>,
+    /// For a Lightning payment: the refund key's signature over the invoice hash, which the LNv2
+    /// gateway requires before it pays (`SendPaymentPayload::auth`). `None` otherwise.
+    #[serde(default)]
+    pub gateway_auth: Option<FixedBytes<64>>,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
