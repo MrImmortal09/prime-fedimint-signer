@@ -26,11 +26,22 @@ final class WalletModel: ObservableObject {
                 .appendingPathComponent("wallet", isDirectory: true)
             let wallet = try await Wallet.open(dir: directory.path, link: BridgeLink(bridge: bridge))
             self.wallet = wallet
+            applyConnection()
             federation = await wallet.federation()
             await refresh()
         } catch {
             openError = error.shown
         }
+    }
+
+    /// Where requests to Prime go, from the settings: the app in the KeyOS simulator over the
+    /// network when chosen and an address is set, QR codes otherwise.
+    func applyConnection() {
+        let defaults = UserDefaults.standard
+        let simulator = defaults.string(forKey: "primeConnection") == "simulator"
+        let address = defaults.string(forKey: "simulatorAddress")?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        wallet?.setSimulatorAddress(address: simulator && !address.isEmpty ? address : nil)
     }
 
     func refresh() async {

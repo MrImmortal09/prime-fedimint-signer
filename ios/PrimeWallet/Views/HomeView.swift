@@ -2,6 +2,8 @@ import SwiftUI
 
 struct HomeView: View {
     @EnvironmentObject private var model: WalletModel
+    @AppStorage("primeConnection") private var connection = "qr"
+    @AppStorage("simulatorAddress") private var simulatorAddress = ""
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -20,7 +22,9 @@ struct HomeView: View {
                     Label(federationName, systemImage: "building.2").font(.subheadline)
                     Label("Paired with Passport Prime", systemImage: "checkmark.shield")
                         .font(.caption).foregroundStyle(WalletStyle.mint)
-                    Text("Authorization uses QR. Prime does not need to stay connected.").font(.caption).foregroundStyle(WalletStyle.muted)
+                    Text(connection == "simulator" && !simulatorAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                         ? "Authorization uses the simulator network connection."
+                         : "Authorization uses QR. Prime does not need to stay connected.").font(.caption).foregroundStyle(WalletStyle.muted)
                 }
                 HStack(spacing: 12) {
                     NavigationLink { SendView() } label: { Label("Send", systemImage: "arrow.up.right") }

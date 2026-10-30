@@ -1,6 +1,7 @@
 //! Reaching Passport Prime.
 
 use std::fmt::Debug;
+use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -104,6 +105,47 @@ impl DeviceLink for BridgeLink {
                 .wait_response(&id, timeout)
                 .map_err(|error| format!("cannot read the answer: {error}"))?
                 .ok_or_else(|| format!("no answer within {timeout:?}"))
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
+}
+
+/// Prime in the KeyOS simulator, through the network link (`fps_transport::net`): a stand-in for
+/// QuantumLink while there is no device.
+#[derive(Debug, Clone)]
+pub struct NetworkLink {
+    /// The simulator app's host, or `host:port`.
+    address: String,
+    /// How long to wait for an answer, including the time someone takes to approve.
+    timeout: Duration,
+}
+
+impl NetworkLink {
+    pub fn new(address: impl Into<String>, timeout: Duration) -> Self {
+        Self {
+            address: address.into(),
+            timeout,
+        }
+    }
+}
+
+#[async_trait]
+impl DeviceLink for NetworkLink {
+    async fn call(&self, request: Vec<u8>) -> Result<Vec<u8>, String> {
+        let (address, timeout) = (self.address.clone(), self.timeout);
+        tokio::task::spawn_blocking(move || {
+            let stream = fps_transport::net::connect(&address).map_err(|error| {
+                format!("cannot connect to the simulator at {address}: {error}")
+            })?;
+            fps_transport::net::exchange_on(stream, &request, timeout).map_err(|error| match error
+                .kind()
+            {
+                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => {
+                    format!("no answer from the simulator at {address} within {timeout:?}")
+                }
+                _ => format!("the simulator at {address}: {error}"),
+            })
         })
         .await
         .map_err(|error| error.to_string())?

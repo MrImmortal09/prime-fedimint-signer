@@ -1,8 +1,8 @@
 # Wire protocol, version 1
 
 The messages between the phone wallet and Passport Prime. The reference implementation is
-`crates/protocol`. The same bytes travel over every transport: the simulator file bridge, animated UR
-(types `fps-request` and `fps-response`), QuantumLink and NFC. [Transports](#transports) describes
+`crates/protocol`. The same bytes travel over every transport: the simulator file bridge, the simulator
+network link, animated UR (types `fps-request` and `fps-response`), QuantumLink and NFC. [Transports](#transports) describes
 the first two.
 
 ## Envelope
@@ -152,3 +152,20 @@ For development and tests, the app in the hosted KeyOS simulator also serves a h
 
 Both sides write under a temporary name and rename the file into place. A request that needs approval
 holds the queue until the user decides on the simulator's screen. Device builds have no bridge.
+
+### Simulator network link
+
+A stand-in for QuantumLink while there is no device. The app in the hosted simulator listens on TCP
+(`$FPS_NET_ADDR`, default `0.0.0.0:7865`), and a phone on the same network connects to it, one
+exchange per connection:
+
+| Direction | Frame |
+|---|---|
+| phone to app | `u32` big-endian length, then the request envelope |
+| app to phone | `u32` big-endian length, then the response envelope, once it is final |
+
+A request that needs approval keeps its connection open until the user decides on the simulator's
+screen; requests that arrive meanwhile wait in order. A frame whose length is over the 64 KiB limit is
+refused before it is read. There is no encryption and no authentication: the link is for a network you
+control, and device builds do not compile it. On the device the same envelopes will travel over
+QuantumLink.
