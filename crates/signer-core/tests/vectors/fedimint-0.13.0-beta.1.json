@@ -458,6 +458,7 @@
         "txid": "f9537564cacc9ccb84b125281ef650904c40379aceffb9f238a6a1438524899f",
         "released": [],
         "funded": [],
+        "issued": [],
         "inputs_msat": 1310720,
         "outputs_msat": 1309184,
         "module_fees_msat": 1357,
@@ -472,6 +473,7 @@
         "txid": "3d60fb9b1742dcf1f62abad03001df6990cdab1ea7a50919899716fcee42f7bd",
         "released": [],
         "funded": [],
+        "issued": [],
         "inputs_msat": 134217728,
         "outputs_msat": 134188096,
         "module_fees_msat": 29133,
@@ -492,6 +494,7 @@
             "contract": "002064d98d4b1c6cccf52e4c0eee8c1e00388aaac7de42085cb9623495616a4d0a66fe03041840fd03e802b5483adec9e86e43c0bfa5204292c1af485940070aa6e07bef429e29e027301a0266251cc4a19efe66b2fc8002e5e75b88f985da7628fd7f0352ad1d032c379c4b027491392ea57c5612f64e19c52b804399ccdf68ba6cf1ddd055b2772325489b69"
           }
         ],
+        "issued": [],
         "inputs_msat": 50600000,
         "outputs_msat": 50587648,
         "module_fees_msat": 11915,
@@ -506,6 +509,7 @@
         "txid": "cd018c30f6c0190d30e5ae3d744de6b9f3fd0f1c95fa7dfb87cbdc66407221bd",
         "released": [],
         "funded": [],
+        "issued": [],
         "inputs_msat": 1073741824,
         "outputs_msat": 1073425728,
         "module_fees_msat": 315714,
@@ -520,6 +524,18 @@
         "txid": "1b421f868db1f0984a4b90554b4c2d92304581383925c417a5d84765f3896774",
         "released": [],
         "funded": [],
+        "issued": [
+          {
+            "denomination": 23,
+            "tweak": "3e9e837db331380d776047b55fa0c058",
+            "signature": "8f476ccd7996cc7a58fe9916559c11ff523e4ca527f09365c0bf93fb2b627312900a35336dec6b4c86408d45261a26d2"
+          },
+          {
+            "denomination": 20,
+            "tweak": "44d2633c89317c9e15e9a2654e792e86",
+            "signature": "a2a713b2bf4137e09a9904bd3649c54fc149d4f4b33eb70070192de99b41ee0bcf8668beceba87df90db5267baaa3511"
+          }
+        ],
         "inputs_msat": 33554432,
         "outputs_msat": 33546240,
         "module_fees_msat": 8003,
@@ -543,6 +559,18 @@
           }
         ],
         "funded": [],
+        "issued": [
+          {
+            "denomination": 16,
+            "tweak": "757d16b20382936a54e9df278569c074",
+            "signature": "b9c448ec56fd6abe8ff21f7860ddffe4db10b065aa06f4f8b16d47241ba334b2c74574a86022d0a16999d6ff676bf2c6"
+          },
+          {
+            "denomination": 15,
+            "tweak": "b4d8ae4b613f79235d0a0e5121d619b5",
+            "signature": "96ebc22017f99d6d1317dc31c4758ebbee83cce73ebf713fcedcae47581a1c9dc52661781f7d675863c2be6f2a7bc5fa"
+          }
+        ],
         "inputs_msat": 98304,
         "outputs_msat": 97280,
         "module_fees_msat": 816,

@@ -166,6 +166,27 @@ only `getrandom` in the device dependency graph is the SDK's TRNG-backed fork. S
 publisher identity (`foundation cert gen`), so `foundation build`, sideloading and device timings
 wait for hardware in Phase 3.
 
+### How it is verified
+
+`scripts/sim-e2e.sh` builds the app, starts the simulator and plays the golden scenario through the
+file bridge and the screen (`tools/sim-e2e`). It reads the results the way a phone would, checks them
+on its own, restarts the simulator, and checks again.
+
+| Check | Result |
+|---|---|
+| The scenario on a fresh app | 19 checks: import, view material, nonces, reissue, a Lightning payment rejected and then approved, refund, a withdrawal signed only after the system PIN, prepared send, release shown on screen, release to the phone, reclaim, replay, malformed input, status |
+| Signatures from the simulator | Every one verifies with secp256k1 against the transaction id fedimint computed |
+| The token shown on screen | Read off a screenshot as a QR code: exactly the token the scenario's notes make, invite included |
+| After a simulator restart | 4 checks: the federation, the stored answers and the released-notes ledger survived in `AppData` |
+| Repeatability | Two consecutive runs pass, and the simulator leaves no processes behind |
+| `fps-transport` | 23 tests: UR round trips in any order and case, size limits checked before reassembly, bridge ordering, atomic files, the private seed file, reset |
+| Release with the federation's real mint signatures | `fps-signer` service test with signature checks on; a signature swapped between notes is refused |
+| First-run consent prompt | Checked by hand in the simulator: the prompt shows over the home screen, and the signer opens after Allow |
+
+`cargo test --workspace` runs the host tests. The simulator check needs the Foundation SDK, so it
+runs locally rather than in CI. The golden generator now also records the mint signatures of the
+outgoing notes the scenario stages and reclaims, so releases are tested with real signatures.
+
 ### Findings
 
 - **The app seed can only be read once the window is on screen.** The first `GetAppSeed` asks the

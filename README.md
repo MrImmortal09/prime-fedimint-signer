@@ -38,7 +38,8 @@ followed by a separate test commit.
 | `prime-app/` | The KeyOS app, built with the Foundation SDK |
 | `devtools/` | Host-only: golden vectors and cross-checks against the real fedimint crates |
 | `spikes/xous-crypto/` | Phase 0 spike: the signer's crypto and encoding dependencies, built for the device |
-| `scripts/` | `sdk-shell.sh` runs a command in the Foundation SDK shell; `device-build.sh` builds crates and `app-device-build.sh` the app for Passport Prime |
+| `tools/sim-e2e/` | The end-to-end driver for the app in the simulator |
+| `scripts/` | `sdk-shell.sh` runs a command in the Foundation SDK shell; `device-build.sh` builds crates and `app-device-build.sh` the app for Passport Prime; `sim-e2e.sh` runs the simulator check |
 
 ## Building and testing
 
@@ -76,6 +77,13 @@ scripts/app-device-build.sh
 In the simulator the app also serves a file bridge, `~/.fps-signer-sim`, which takes request
 envelopes in `inbox/` and answers in `outbox/` (see [`docs/PROTOCOL.md`](docs/PROTOCOL.md#transports)).
 `foundation build` produces the signed bundle once a publisher identity exists.
+
+The end-to-end check plays the golden scenario through the simulator: the bridge, the screen, the
+system PIN, and a restart. It needs no other simulator running:
+
+```sh
+scripts/sim-e2e.sh
+```
 
 ## Target platform
 

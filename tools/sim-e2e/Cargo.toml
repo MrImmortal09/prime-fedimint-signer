@@ -1,0 +1,21 @@
+[package]
+name = "fps-sim-e2e"
+description = "Drives the Fedimint signer app in the KeyOS simulator end to end, through the file bridge and the screen"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+fps-protocol = { path = "../../crates/protocol" }
+fps-signer-core = { path = "../../crates/signer-core" }
+fps-transport = { path = "../../crates/transport" }
+bitcoin.workspace = true
+ciborium.workspace = true
+serde.workspace = true
+base64 = "0.22"
+hex = "0.4"
+serde_json = "1"
+# Reading the ecash QR code off a simulator screenshot.
+image = { version = "0.25", default-features = false, features = ["png"] }
+rqrr = "0.11"

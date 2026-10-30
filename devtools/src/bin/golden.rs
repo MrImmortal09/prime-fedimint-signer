@@ -187,6 +187,15 @@ struct NoteRefCase {
     tweak: String,
 }
 
+/// An outgoing-branch note with its unblinded mint signature, as the phone fetches it from the
+/// federation once the transaction that issued it is accepted.
+#[derive(Serialize)]
+struct IssuedNoteCase {
+    denomination: u8,
+    tweak: String,
+    signature: String,
+}
+
 #[derive(Serialize)]
 struct FundedContractCase {
     txid: String,
@@ -204,6 +213,9 @@ struct TransactionCase {
     released: Vec<NoteRefCase>,
     /// Contracts the device must remember funding.
     funded: Vec<FundedContractCase>,
+    /// The outgoing-branch notes this case stages or reclaims, with their mint signatures: what
+    /// the phone sends to release them.
+    issued: Vec<IssuedNoteCase>,
     inputs_msat: u64,
     outputs_msat: u64,
     module_fees_msat: u64,
@@ -267,7 +279,7 @@ impl Built {
         keys: &FederationKeys,
         branch: Branch,
         denomination: u8,
-    ) {
+    ) -> (u8, [u8; 16]) {
         let tweak = grind_tweak(keys.view(), rng);
         self.outputs
             .push(note_output(keys, branch, denomination, tweak));
@@ -278,6 +290,7 @@ impl Built {
             Branch::Spend => self.change_msat += amount,
             Branch::Outgoing => self.staged_msat += amount,
         }
+        (denomination, tweak)
     }
 
     /// Fills the rest with change notes and returns the overpay left over.
@@ -319,6 +332,7 @@ impl Built {
                 })
                 .collect(),
             funded,
+            issued: Vec::new(),
             inputs_msat: self.in_msat,
             outputs_msat: self.out_msat,
             module_fees_msat: self.fees_msat,
@@ -415,10 +429,12 @@ fn scenario(rng: &mut ChaCha20Rng) -> (Scenario, Vec<ContractCase>) {
     // Preparing a 2^23 + 2^20 msat ecash send: staged outgoing notes plus change.
     let mut built = Built::new();
     built.spend_note(rng, &fed, &keys, Branch::Spend, 25);
-    built.note_out(rng, &keys, Branch::Outgoing, 23);
-    built.note_out(rng, &keys, Branch::Outgoing, 20);
+    let staged = [
+        built.note_out(rng, &keys, Branch::Outgoing, 23),
+        built.note_out(rng, &keys, Branch::Outgoing, 20),
+    ];
     let overpay = built.change(rng, &keys);
-    transactions.push(built.finish(
+    let mut prepare = built.finish(
         rng,
         &fed,
         "prepare_send",
@@ -428,14 +444,16 @@ fn scenario(rng: &mut ChaCha20Rng) -> (Scenario, Vec<ContractCase>) {
         overpay,
         vec![],
         vec![],
-    ));
+    );
+    prepare.issued = issued_notes(&fed, &keys, &staged);
+    transactions.push(prepare);
 
     // Reclaiming two released outgoing notes nobody redeemed.
     let mut built = Built::new();
     let first = built.spend_note(rng, &fed, &keys, Branch::Outgoing, 16);
     let second = built.spend_note(rng, &fed, &keys, Branch::Outgoing, 15);
     let overpay = built.change(rng, &keys);
-    transactions.push(built.finish(
+    let mut reclaim = built.finish(
         rng,
         &fed,
         "reclaim",
@@ -443,7 +461,9 @@ fn scenario(rng: &mut ChaCha20Rng) -> (Scenario, Vec<ContractCase>) {
         overpay,
         vec![first, second],
         vec![],
-    ));
+    );
+    reclaim.issued = issued_notes(&fed, &keys, &[first, second]);
+    transactions.push(reclaim);
 
     let scenario = Scenario {
         app_seed: h(APP_SEED),
@@ -452,6 +472,27 @@ fn scenario(rng: &mut ChaCha20Rng) -> (Scenario, Vec<ContractCase>) {
         transactions,
     };
     (scenario, contracts)
+}
+
+/// The mint signatures `fed` issues for these outgoing-branch notes. Issuing is deterministic, so
+/// these are the signatures of the very notes the scenario's transactions create and spend.
+fn issued_notes(
+    fed: &TestFederation,
+    keys: &FederationKeys,
+    notes: &[(u8, [u8; 16])],
+) -> Vec<IssuedNoteCase> {
+    notes
+        .iter()
+        .map(|&(denomination, tweak)| IssuedNoteCase {
+            denomination,
+            tweak: h(tweak),
+            signature: h(fed
+                .issue_note(keys, Branch::Outgoing, denomination, tweak)
+                .signature
+                .0
+                .to_compressed()),
+        })
+        .collect()
 }
 
 fn contract_case(contract: &fedimint_lnv2_common::contracts::OutgoingContract) -> ContractCase {

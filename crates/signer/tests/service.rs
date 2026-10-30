@@ -156,14 +156,36 @@ fn imported(scenario: &Scenario) -> (TestSigner, FlakyStorage) {
 }
 
 fn lenient_releases(signer: &mut TestSigner) {
-    // Scenario notes are signed by a mint whose secrets the vectors do not carry, so release tests
-    // switch off the mint-signature check; `fps-signer-core`'s release tests cover it.
+    // Most release tests use made-up signatures, so they switch off the mint-signature check;
+    // `prepared_notes_release_with_their_real_mint_signatures` runs with it on.
     signer
         .set_policy(PolicyConfig {
             verify_release_signatures: false,
             ..PolicyConfig::default()
         })
         .unwrap();
+}
+
+/// The mint signatures the scenario federation issued for a case's outgoing notes.
+fn issued(case: &str) -> Vec<ReleaseNote> {
+    let vectors = vectors();
+    let case = vectors["scenario"]["transactions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == case)
+        .unwrap()
+        .clone();
+    case["issued"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|note| ReleaseNote {
+            denomination: note["denomination"].as_u64().unwrap() as u8,
+            tweak: FixedBytes(bytes(&note["tweak"]).try_into().unwrap()),
+            signature: FixedBytes(bytes(&note["signature"]).try_into().unwrap()),
+        })
+        .collect()
 }
 
 fn dummy_signature() -> FixedBytes<48> {
@@ -475,6 +497,51 @@ fn prepared_notes_release_without_a_second_review_exactly_once() {
         rejection(send(&mut signer, id(42), release(Delivery::ReturnToPhone))),
         RejectCode::AlreadyReleased
     );
+}
+
+#[test]
+fn prepared_notes_release_with_their_real_mint_signatures() {
+    let scenario = scenario();
+    let (mut signer, _) = imported(&scenario);
+    assert!(signer.policy().verify_release_signatures);
+    approved(
+        &mut signer,
+        id(70),
+        Request::SignTransaction(scenario.request("prepare_send")),
+    );
+    let release = |notes: Vec<ReleaseNote>| {
+        Request::ReleaseNotes(ReleaseRequest {
+            federation: scenario.descriptor.federation,
+            notes,
+            include_invite: false,
+            delivery: Delivery::ReturnToPhone,
+        })
+    };
+    let notes = issued("prepare_send");
+    assert_eq!(notes.len(), 2);
+
+    // Each signature is valid, but for the other note: nothing is released.
+    let mut swapped = notes.clone();
+    let first = swapped[0].signature;
+    swapped[0].signature = swapped[1].signature;
+    swapped[1].signature = first;
+    assert_eq!(
+        rejection(send(&mut signer, id(71), release(swapped))),
+        RejectCode::InvalidNote
+    );
+    assert_eq!(signer.state().prepared.len(), 2);
+
+    let Outcome::Released { reply, show_token } = send(&mut signer, id(72), release(notes)) else {
+        panic!("prepared notes release without asking");
+    };
+    assert!(show_token.is_none(), "the token goes to the phone");
+    let Response::Released(released) = response(&reply).body else {
+        panic!("expected a release");
+    };
+    assert_eq!(released.amount_msat, (1 << 23) + (1 << 20));
+    assert!(released.token.unwrap().starts_with("fedimint"));
+    assert!(signer.state().prepared.is_empty());
+    assert_eq!(signer.state().released.len(), 2);
 }
 
 #[test]

@@ -7,6 +7,7 @@ members = [
     "crates/signer-core",
     "crates/transport",
     "spikes/xous-crypto",
+    "tools/sim-e2e",
 ]
 # Built separately: `prime-app` by the Foundation SDK, `devtools` against the real fedimint crates.
 exclude = ["prime-app", "devtools"]
