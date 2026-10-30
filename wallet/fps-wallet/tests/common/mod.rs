@@ -3,6 +3,7 @@
 //! Prime is the real `fps-signer` service, reached through the same `DeviceLink` the simulator
 //! bridge implements, with a test hand on its approve and reject buttons. The gateway is
 //! fedimint's LNv2 mock, extended to check the payer's authorisation the way a real gateway does.
+//! The chain is fedimint's fake one, which mines on demand.
 
 #![allow(dead_code)]
 
@@ -26,6 +27,7 @@ use fedimint_core::encoding::Encodable as _;
 use fedimint_core::secp256k1::rand::rngs::OsRng;
 use fedimint_core::secp256k1::schnorr::Signature;
 use fedimint_core::secp256k1::{Keypair, Message, SECP256K1, SecretKey};
+use fedimint_core::task::sleep_in_test;
 use fedimint_core::util::SafeUrl;
 use fedimint_core::{Amount, OutPoint};
 use fedimint_dummy_client::{DummyClientInit, DummyClientModule};
@@ -37,8 +39,11 @@ use fedimint_lnv2_common::{Bolt11InvoiceDescription, LightningInvoice};
 use fedimint_lnv2_server::LightningInit;
 use fedimint_mintv2_client::{MintClientInit, MintClientInitWithKeys};
 use fedimint_mintv2_server::MintInit;
+use fedimint_testing::btc::BitcoinTest;
 use fedimint_testing::federation::FederationTest;
 use fedimint_testing::fixtures::Fixtures;
+use fedimint_walletv2_client::{WalletClientInit, WalletClientModule};
+use fedimint_walletv2_server::{BLOCK_COUNT_VOTE_DELAY, CONFIRMATION_FINALITY_DELAY, WalletInit};
 use fps_protocol::RequestId;
 use fps_signer::{MemoryStorage, Outcome, Platform, Signer};
 use fps_wallet::DeviceKeys;
@@ -288,7 +293,7 @@ impl GatewayConnection for CheckingGateway {
 }
 
 /// A federation with the mint v2 module as the primary module, the dummy module to fund
-/// wallets out of thin air, and LNv2.
+/// wallets out of thin air, LNv2 and wallet v2.
 pub fn fixtures(gateway: Arc<CheckingGateway>) -> Fixtures {
     Fixtures::new_primary(MintClientInit, MintInit)
         .with_module(DummyClientInit, DummyInit)
@@ -299,6 +304,7 @@ pub fn fixtures(gateway: Arc<CheckingGateway>) -> Fixtures {
             },
             LightningInit,
         )
+        .with_module(WalletClientInit, WalletInit)
 }
 
 pub fn root_secret(byte: u8) -> RootSecret {
@@ -322,6 +328,7 @@ fn watch_only_inits(
         refund_keys: Some(keys.clone()),
         ..LightningClientInit::default()
     });
+    inits.attach(WalletClientInit);
     inits
 }
 
@@ -411,4 +418,62 @@ pub async fn settled_balance(client: &ClientHandleArc) -> Amount {
         .get_balance_for_btc()
         .await
         .expect("a bitcoin balance")
+}
+
+/// Waits until the federation's view of the chain reaches `height`.
+async fn await_block_count(onchain: &WalletClientModule, height: u64) -> anyhow::Result<()> {
+    while onchain.block_count().await? < height {
+        sleep_in_test(
+            format!("waiting for the federation to reach block {height}"),
+            Duration::from_secs(1),
+        )
+        .await;
+    }
+    Ok(())
+}
+
+/// Puts bitcoin in the federation's on-chain wallet, so wallets can withdraw: a stranger deposits
+/// `amount`, and the federation claims it once the deposit is final.
+pub async fn peg_in(
+    fed: &FederationTest,
+    chain: &Arc<dyn BitcoinTest>,
+    amount: bitcoin::Amount,
+) -> anyhow::Result<()> {
+    let stranger = fed.new_client().await;
+    let onchain = stranger.get_first_module::<WalletClientModule>()?;
+    // The federation tracks deposits only once its block count is above zero.
+    chain.mine_blocks(1 + BLOCK_COUNT_VOTE_DELAY).await;
+    await_block_count(&onchain, 1).await?;
+    let address = onchain.receive().await;
+    chain.send_and_mine_block(&address, amount).await;
+    let height = onchain.block_count().await?;
+    chain.mine_blocks(BLOCK_COUNT_VOTE_DELAY).await;
+    await_block_count(&onchain, height + CONFIRMATION_FINALITY_DELAY).await?;
+    while onchain.total_value().await? == bitcoin::Amount::ZERO {
+        sleep_in_test(
+            "waiting for the federation to claim the deposit",
+            Duration::from_secs(1),
+        )
+        .await;
+    }
+    Ok(())
+}
+
+/// Mines until `address` receives something, and returns what it received.
+pub async fn received_on_chain(
+    chain: &Arc<dyn BitcoinTest>,
+    address: &bitcoin::Address,
+) -> anyhow::Result<Amount> {
+    for _ in 0..60 {
+        let received = chain.mine_block_and_get_received(address).await;
+        if received > Amount::ZERO {
+            return Ok(received);
+        }
+        sleep_in_test(
+            "waiting for the federation to broadcast the withdrawal",
+            Duration::from_secs(1),
+        )
+        .await;
+    }
+    anyhow::bail!("nothing reached {address} within a minute")
 }

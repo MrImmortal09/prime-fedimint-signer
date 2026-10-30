@@ -34,5 +34,8 @@ fedimint-testing.workspace = true
 fedimint-api-client.workspace = true
 fedimint-connectors.workspace = true
 fedimint-lnv2-server.workspace = true
+fedimint-walletv2-client.workspace = true
+fedimint-walletv2-server.workspace = true
 fps-signer.workspace = true
+fps-simdrive.workspace = true
 lightning-invoice = { version = "0.33.2", features = ["std"] }

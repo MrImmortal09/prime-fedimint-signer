@@ -36,6 +36,7 @@ tbs = { package = "fedimint-tbs", path = "../third_party/fedimint/crypto/tbs" }
 fps-protocol = { path = "../crates/protocol" }
 fps-signer = { path = "../crates/signer" }
 fps-signer-core = { path = "../crates/signer-core" }
+fps-simdrive = { path = "../crates/simdrive" }
 fps-transport = { path = "../crates/transport" }
 
 anyhow = "1"

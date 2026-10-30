@@ -55,4 +55,6 @@ jobs:
         run: scripts/fedimint-checkout.sh
       - run: cargo fmt --manifest-path wallet/Cargo.toml -p fps-wallet --check
       - name: The watch-only client against an in-process federation
-        run: cargo test --manifest-path wallet/Cargo.toml
+        # From the wallet directory, so its cargo config gives fedimint's fixtures their test timings.
+        working-directory: wallet
+        run: cargo test

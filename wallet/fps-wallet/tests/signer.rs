@@ -7,7 +7,8 @@ mod common;
 
 use common::{
     CheckingGateway, Decision, INVOICE_PREIMAGE, fixtures, fund, gateway, paired_wallet,
-    payable_invoice, recovering_client, settled_balance, unpayable_invoice,
+    payable_invoice, peg_in, received_on_chain, recovering_client, settled_balance,
+    unpayable_invoice,
 };
 use fedimint_client_module::error::TransactionSubmitError;
 use fedimint_client_module::transaction::TransactionSignerError;
@@ -17,6 +18,7 @@ use fedimint_lnv2_client::{FinalSendOperationState, LightningClientModule};
 use fedimint_mintv2_client::{
     ECash, ExternalNotesError, FinalReceiveOperationState, MintClientModule, SendECashError,
 };
+use fedimint_walletv2_client::WalletClientModule;
 use fps_protocol::Delivery;
 use fps_wallet::send::SendError;
 use serde_json::Value;
@@ -160,6 +162,51 @@ async fn ecash_leaves_from_the_outgoing_branch_and_comes_back_if_unclaimed() -> 
     assert!(
         after > before + Amount::from_sats(2_040),
         "{after} after {before}"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_withdrawal_reaches_the_chain_with_the_device_signing() -> anyhow::Result<()> {
+    let gateway_conn = CheckingGateway::new();
+    let fixtures = fixtures(gateway_conn.clone());
+    let chain = fixtures.bitcoin();
+    let fed = fixtures.new_fed_not_degraded().await;
+    peg_in(&fed, &chain, bitcoin::Amount::from_sat(1_000_000)).await?;
+    let (device, _keys, wallet) = paired_wallet(&fed, &gateway_conn).await;
+    fund(&wallet, Amount::from_sats(50_000)).await;
+    let balance = settled_balance(&wallet).await;
+
+    let onchain = wallet.get_first_module::<WalletClientModule>()?;
+    let address = chain.get_new_address().await;
+    let value = bitcoin::Amount::from_sat(20_000);
+    let fee = onchain.send_fee().await?;
+    let quote = onchain.send_fee_quote(value + fee).await?;
+    let withdrawal = onchain
+        .send(
+            address.as_unchecked().clone(),
+            value,
+            Some(fee),
+            Value::Null,
+        )
+        .await?;
+    assert!(matches!(
+        onchain.await_final_send_operation_state(withdrawal).await?,
+        fedimint_walletv2_client::FinalSendOperationState::Success(_)
+    ));
+    assert_eq!(device.reviews().last().unwrap(), "Withdraw on chain");
+    assert_eq!(
+        received_on_chain(&chain, &address).await?,
+        Amount::from_sats(value.to_sat())
+    );
+
+    // The wallet paid the value, the miner fee and the federation's fees as fedimint quoted them.
+    let spent = balance
+        .checked_sub(settled_balance(&wallet).await)
+        .expect("the balance went down");
+    assert_eq!(
+        spent,
+        Amount::from_sats((value + fee).to_sat()) + quote.total().get_bitcoin()
     );
     Ok(())
 }

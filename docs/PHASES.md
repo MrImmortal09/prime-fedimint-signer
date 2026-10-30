@@ -310,6 +310,25 @@ The plan also put fedimint-sdk bindings and devimint in Stage 2. The bindings mo
 the phone app needs them. devimint moves to Phase 6: the in-process federation already runs
 fedimint's real consensus and modules, so only the gateway and the chain are stand-ins.
 
+### How it is verified
+
+`scripts/sim-wallet-e2e.sh` runs the wallet test against the app in the simulator. Every screen the
+hand dealt with is checked, in order:
+
+| Step | Screens on the simulator | Checked on the wallet side |
+|---|---|---|
+| Pairing | Add federation, Connect wallet app: approved | The view material matches; funding needs no review |
+| Lightning payment | Pay Lightning invoice: approved | The gateway verifies the authorisation and pays |
+| Cancelled payment | Pay Lightning invoice, Refund failed payment: approved | The refund comes back |
+| Withdrawal | Withdraw on chain: approved | The address receives exactly the value |
+| Declined spend | Prepare ecash to send: rejected | Declined; the balance is unchanged |
+| Ecash to the phone | Prepare ecash to send: approved | Released without a second review; a stranger redeems the token |
+| Ecash on Prime | Prepare ecash to send: approved; the token screen | The token read off the screen redeems for the stranger; the phone never sees it |
+| Ecash taken back | Prepare ecash to send: approved; the token screen; Reclaim unredeemed ecash: approved | The wallet gets the notes back |
+
+The run takes about half a minute once the app is built. In CI, `cd wallet && cargo test` adds the
+withdrawal test and skips the simulator test, which needs the Foundation SDK.
+
 ### Findings
 
 - **The app needed no change.** Transactions built by the patched fedimint client for a live
