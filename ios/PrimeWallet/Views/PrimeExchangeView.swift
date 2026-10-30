@@ -30,14 +30,14 @@ struct PrimeExchangeView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 24) {
+                VStack(spacing: 12) {
                     HStack {
                         Text(scanning ? "STEP 2 OF 2" : "STEP 1 OF 2").font(.caption.weight(.semibold)).tracking(2)
                         Spacer()
                         Label("QR connection", systemImage: "qrcode").font(.caption)
                     }.foregroundStyle(WalletStyle.copper)
                     if scanning { answer } else { request }
-                }.padding(24).frame(maxWidth: 600)
+                }.padding(20).frame(maxWidth: 600)
             }.background(WalletStyle.background)
             .navigationTitle("Passport Prime")
             .navigationBarTitleDisplayMode(.inline)
@@ -60,7 +60,6 @@ struct PrimeExchangeView: View {
     }
 
     @ViewBuilder private var request: some View {
-        Text("Review on your Passport").font(.largeTitle.bold()).frame(maxWidth: .infinity, alignment: .leading)
         if frames.isEmpty {
             ProgressView()
         } else {
@@ -68,13 +67,17 @@ struct PrimeExchangeView: View {
                 .padding(16).background(.white, in: RoundedRectangle(cornerRadius: 20))
                 .frame(maxWidth: 340)
                 .accessibilityLabel("Animated authorization request for Passport Prime")
-            Text(frames.count > 1 ? "Part \(frame % frames.count + 1) of \(frames.count)" : " ")
-                .font(.caption)
-                .foregroundStyle(WalletStyle.muted)
-            if frames.count > 1 {
-                Button(paused ? "Resume QR animation" : "Pause QR animation") { paused.toggle() }
-                    .font(.subheadline).frame(minHeight: 44)
+            HStack {
+                Text(frames.count > 1 ? "Part \(frame % frames.count + 1) of \(frames.count)" : "Ready to scan")
+                    .font(.caption).foregroundStyle(WalletStyle.muted)
+                Spacer()
+                if frames.count > 1 {
+                    Button(paused ? "Resume" : "Pause") { paused.toggle() }
+                        .font(.subheadline).frame(minWidth: 60, minHeight: 44)
+                        .accessibilityLabel(paused ? "Resume QR animation" : "Pause QR animation")
+                }
             }
+
         }
         Picker("Code size", selection: $densityName) {
             Text("Small").tag("low")
@@ -82,25 +85,19 @@ struct PrimeExchangeView: View {
             Text("Large").tag("high")
         }
         .pickerStyle(.segmented)
-        Text("Larger codes mean fewer parts. Choose smaller ones if Prime cannot read them.")
-            .font(.caption)
-            .foregroundStyle(WalletStyle.muted)
-            .multilineTextAlignment(.center)
-        Text("On Prime, open Fedimint and tap Scan Request. Check the amount, destination, fees, and warnings. Slide to approve only if everything matches.")
+        Text("On Prime, scan this code. Check the details, then slide to approve.")
             .multilineTextAlignment(.center)
             .font(.callout)
         Button("Scan Passport response") { scanning = true }
             .buttonStyle(WalletButtonStyle())
-        Text("Keep this screen open while Prime scans. If scanning stalls, keep both screens steady and adjust the distance.")
-            .font(.footnote).foregroundStyle(WalletStyle.muted)
     }
 
     @ViewBuilder private var answer: some View {
-        Text("Bring the answer home").font(.largeTitle.bold()).frame(maxWidth: .infinity, alignment: .leading)
+        Text("Bring the answer home").font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading)
         Text("Scan the response shown on Prime. Your phone will verify it and continue the operation.").foregroundStyle(WalletStyle.muted)
         if Scanner.isAvailable {
             ScannerView { code in take(code) }
-                .frame(height: 380)
+                .frame(height: 280)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
         } else {
             Text("This device cannot scan with its camera.")

@@ -5,24 +5,49 @@ struct CodeField: View {
     let placeholder: String
     @Binding var text: String
     @State private var scanning = false
+    @State private var pasteNotice: String?
 
     var body: some View {
-        TextField(placeholder, text: $text, axis: .vertical)
-            .lineLimit(2...6)
-            .font(.footnote.monospaced())
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-        HStack {
-            Button("Paste") {
-                text = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        VStack(alignment: .leading, spacing: 10) {
+            TextField(placeholder, text: $text, axis: .vertical)
+                .lineLimit(2...3)
+                .font(.subheadline.monospaced())
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityLabel(placeholder == "fed1…" ? "Federation invite code" : "Payment code")
+                .padding(14)
+                .frame(maxWidth: .infinity, minHeight: 76, alignment: .topLeading)
+                .background(WalletStyle.surface, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(WalletStyle.muted.opacity(0.25)))
+            HStack(spacing: 10) {
+                Button {
+                    if let value = UIPasteboard.general.string, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                        pasteNotice = nil
+                    } else {
+                        pasteNotice = "No text to paste. Copy a code first."
+                    }
+                } label: {
+                    Label("Paste", systemImage: "doc.on.clipboard")
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                }
+                .buttonStyle(.plain)
+                .background(WalletStyle.surface, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(WalletStyle.muted.opacity(0.25)))
+                if Scanner.isAvailable {
+                    Button { scanning = true } label: {
+                        Label("Scan", systemImage: "qrcode.viewfinder")
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                    }
+                    .buttonStyle(.plain)
+                    .background(WalletStyle.surface, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(WalletStyle.muted.opacity(0.25)))
+                    .accessibilityLabel("Scan a QR code")
+                }
             }
-            .buttonStyle(.borderless)
-            .frame(minHeight: 44)
-            Spacer()
-            if Scanner.isAvailable {
-                Button("Scan") { scanning = true }
-                    .frame(minHeight: 44)
-                    .buttonStyle(.borderless)
+            .font(.subheadline.weight(.semibold))
+            if let pasteNotice {
+                Text(pasteNotice).font(.caption).foregroundStyle(WalletStyle.muted)
             }
         }
         .sheet(isPresented: $scanning) {
