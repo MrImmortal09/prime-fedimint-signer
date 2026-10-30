@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["spikes/xous-crypto"]
+members = ["crates/policy", "crates/protocol", "crates/signer", "crates/signer-core", "spikes/xous-crypto"]
 # Built separately: `prime-app` by the Foundation SDK, `devtools` against the real fedimint crates.
 exclude = ["prime-app", "devtools"]
 
@@ -28,3 +28,11 @@ lightning-invoice = "0.33"
 
 [profile.release]
 opt-level = "s"
+# Cargo strips release builds by default, which corrupts host proc-macro dylibs built with the
+# Foundation SDK toolchain on current macOS (dlopen: "mis-aligned LINKEDIT string pool").
+# `foundation build` strips the device ELF itself with arm-none-eabi-strip.
+strip = false
+
+# Curve arithmetic and hashing are unusably slow unoptimised; keep our own crates debuggable.
+[profile.dev.package."*"]
+opt-level = 2

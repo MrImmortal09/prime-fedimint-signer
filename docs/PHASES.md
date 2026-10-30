@@ -6,8 +6,8 @@ split into 1A (host-testable crates) and 1B (the KeyOS app) because it is the la
 | Phase | Plan stage | Scope | State |
 |---|---|---|---|
 | 0 | Stage 0 | Repository, plan, device toolchain spike, CI | Done |
-| 1A | Stage 1 | Wire protocol, signer core, policy, signer service, golden vectors | Next |
-| 1B | Stage 1 | KeyOS app on the simulator with the file bridge | Planned |
+| 1A | Stage 1 | Wire protocol, signer core, policy, signer service, golden vectors | Done |
+| 1B | Stage 1 | KeyOS app on the simulator with the file bridge | Next |
 | 2 | Stage 2 | fedimint client signer boundary, end to end on a local federation | Planned |
 | 3 | Stage 3 | Phone app, QR/UR, hardware | Planned |
 | 4 | Stage 4 | Bluetooth through a KeyOS QuantumLink patch | Planned |
@@ -82,3 +82,52 @@ Reading fedimint 0.13.0-beta.1 during this phase produced four corrections, reco
 - Device timings: need hardware or a dev unit.
 - Questions for Foundation listed at the end of `plan/05_EXECUTION_PLAN.md`.
 - A local federation (devimint) is not needed until Phase 2.
+
+## Phase 1A: protocol, signer core, policy, signer service
+
+### Delivered
+
+| Crate | What it does |
+|---|---|
+| `crates/protocol` (`fps-protocol`) | The CBOR wire protocol: envelope, requests, responses, rejection codes. Spec: `PROTOCOL.md` |
+| `crates/signer-core` (`fps-signer-core`) | fedimint 0.13 decoders for the v2 module shape, the `fps-v1` key scheme, transaction analysis, signing, ecash release, BOLT11 parsing. Spec: `KEY_SCHEME.md`, `SECURITY.md` |
+| `crates/policy` (`fps-policy`) | Outflow limits, gateway fee ceiling, PIN threshold |
+| `crates/signer` (`fps-signer`) | The service the KeyOS app embeds: approvals, replay, the ledger of released notes, staged notes and funded contracts, durable persistence |
+| `devtools` (`fps-devtools`) | Host-only workspace linking the real fedimint 0.13.0-beta.1 crates: the golden vector generator and live cross-checks |
+
+### How it is verified
+
+| Check | Result |
+|---|---|
+| Golden vectors produced by fedimint itself (integers, hash-to-curve, base32, federation ids, mint v2 inputs and outputs, note signatures, LNv2 contracts and inputs, wallet v2 peg-outs, ecash tokens) | Every decoder reads fedimint's bytes and every encoder reproduces them |
+| Six full scenarios built with fedimint types (reissue, pay invoice, refund, withdraw, prepare send, reclaim) | Same transaction ids, same fee totals, valid signatures |
+| Live cross-check: device signatures checked by fedimint's `Transaction::validate_signatures` | Accepted for reissue, Lightning payment, withdrawal, refund and staged send; a swapped signature is refused |
+| Live cross-check: released tokens decoded by fedimint's `ECash` | Decode, carry the right amount, invite and keys; every note verifies with `verify_note` |
+| 40 random fedimint-built transactions | Decode, re-encode and hash identically |
+| Behaviour tests | analysis 23, encoding 8, federation 7, invoice 4, key scheme 5, release 5, protocol 8, policy 6, service 14 |
+| Device build | All four production crates build for `armv7a-unknown-xous-elf` in release mode |
+
+Run them with `cargo test --workspace`, and `cargo test --release --manifest-path devtools/Cargo.toml`
+for the live cross-checks. `cargo run --release --manifest-path devtools/Cargo.toml --bin golden`
+regenerates the vectors; CI checks they are unchanged.
+
+### Findings
+
+- **Refund contract substitution.** A refund input names an outpoint the device cannot look up, so a
+  phone could pair it with a cheaper contract and have the federation keep the difference as fees. The
+  service now records every contract it funds by outpoint and refuses a mismatching refund.
+- **Fee overpayment.** fedimint 0.13 accepts transactions that overpay fees. The analysis computes the
+  module fees from the federation's fee rules and refuses overpayment beyond 1,000 msat.
+- **Recovery-safe outputs.** Change and staged notes must use tweaks that pass the wallet's recovery
+  filter, or a later recovery would miss them.
+- **macOS release builds.** Cargo's default release stripping corrupts host proc-macro dylibs built with
+  the SDK toolchain on current macOS. The workspace sets `strip = false`; `foundation build` strips the
+  device ELF itself. The KeyOS app in Phase 1B needs the same setting.
+- **32-bit lengths.** Collection counts are range-checked rather than cast, since `usize` is 32 bits on
+  the device.
+
+### Still open
+
+- Device timings for signing and BLS checks need hardware.
+- The phone side of the key scheme lands with the fedimint client changes in Phase 2.
+- Mint v1, wallet v1 and LN v1 decoders for older federations.

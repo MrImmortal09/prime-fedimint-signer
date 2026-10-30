@@ -1,0 +1,15 @@
+[package]
+name = "fps-signer"
+description = "The Passport Prime Fedimint signer service: requests, approvals, ledger and persistence"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+fps-protocol = { path = "../protocol" }
+fps-signer-core = { path = "../signer-core" }
+fps-policy = { path = "../policy" }
+ciborium.workspace = true
+serde.workspace = true
+zeroize = "1"

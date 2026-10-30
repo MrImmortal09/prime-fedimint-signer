@@ -1,0 +1,10 @@
+[package]
+name = "fps-policy"
+description = "Spending limits the Passport Prime Fedimint signer enforces on its own"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true

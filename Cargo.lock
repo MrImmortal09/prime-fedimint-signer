@@ -214,6 +214,56 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
+name = "fps-policy"
+version = "0.1.0"
+dependencies = [
+ "ciborium",
+ "serde",
+]
+
+[[package]]
+name = "fps-protocol"
+version = "0.1.0"
+dependencies = [
+ "ciborium",
+ "serde",
+]
+
+[[package]]
+name = "fps-signer"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "ciborium",
+ "fps-policy",
+ "fps-protocol",
+ "fps-signer-core",
+ "hex",
+ "serde",
+ "serde_json",
+ "zeroize",
+]
+
+[[package]]
+name = "fps-signer-core"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "bls12_381",
+ "ciborium",
+ "fps-protocol",
+ "group",
+ "hex",
+ "lightning-invoice",
+ "rand_chacha",
+ "rand_core",
+ "serde",
+ "serde_json",
+ "sha3",
+ "zeroize",
+]
+
+[[package]]
 name = "fps-spike-xous-crypto"
 version = "0.1.0"
 dependencies = [
@@ -268,6 +318,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
 name = "hex-conservative"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -290,6 +346,12 @@ name = "hex_lit"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3011d1213f159867b13cfd6ac92d2cd5f1345762c63be3554e84092d85a50bbd"
+
+[[package]]
+name = "itoa"
+version = "1.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "keccak"
@@ -325,6 +387,12 @@ checksum = "7da19491efc72d10a13d5b8fd9c0cc6de7814742675adcb9996fa13f40a3b5ca"
 dependencies = [
  "bitcoin",
 ]
+
+[[package]]
+name = "memchr"
+version = "2.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "pairing"
@@ -444,6 +512,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_json"
+version = "1.0.154"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
+dependencies = [
+ "itoa",
+ "memchr",
+ "serde",
+ "serde_core",
+ "zmij",
+]
+
+[[package]]
 name = "sha3"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -539,3 +620,29 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "zeroize"
+version = "1.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
+dependencies = [
+ "zeroize_derive",
+]
+
+[[package]]
+name = "zeroize_derive"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c50655cbb0fe3fc43170059e702f1ce5e19b84cec58dc87b037a09935c2f328"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "zmij"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"

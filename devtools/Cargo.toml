@@ -1,0 +1,32 @@
+[package]
+name = "fps-devtools"
+description = "Host tools: golden vectors and cross-checks against the real fedimint crates"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Separate from the device workspace: these dependencies only ever build on the host.
+[workspace]
+
+[dependencies]
+fps-protocol = { path = "../crates/protocol" }
+fps-signer-core = { path = "../crates/signer-core" }
+# The exact release fedimint-sdk pins; vectors are produced with it.
+fedimint-core = "=0.13.0-beta.1"
+fedimint-mintv2-common = "=0.13.0-beta.1"
+fedimint-mintv2-client = "=0.13.0-beta.1"
+fedimint-lnv2-common = "=0.13.0-beta.1"
+fedimint-walletv2-common = "=0.13.0-beta.1"
+tbs = { package = "fedimint-tbs", version = "=0.13.0-beta.1" }
+bitcoin = "0.32"
+bls12_381 = "0.8"
+lightning-invoice = "0.33"
+rand = "0.8"
+rand_chacha = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ciborium = "0.2"
+hex = "0.4"
+# Never used directly: turns on the `all` feature an old iroh dependency (netwatch 0.5) needs to
+# build, the same workaround fedimint-sdk carries in its own manifest.
+socket2 = { version = "0.5", features = ["all"] }

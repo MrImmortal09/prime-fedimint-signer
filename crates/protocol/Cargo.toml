@@ -1,0 +1,12 @@
+[package]
+name = "fps-protocol"
+description = "Wire protocol between the phone wallet and the Passport Prime Fedimint signer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+ciborium.workspace = true
+serde.workspace = true
+

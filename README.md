@@ -15,8 +15,8 @@ followed by a separate test commit.
 | Phase | What it delivers | State |
 |---|---|---|
 | 0 | Repository, plan, device toolchain spike, CI | Done |
-| 1A | Wire protocol, signer core, policy, signer service, golden vectors | Next |
-| 1B | KeyOS app on the simulator with the file bridge | Planned |
+| 1A | Wire protocol, signer core, policy, signer service, golden vectors | Done |
+| 1B | KeyOS app on the simulator with the file bridge | Next |
 | 2 | fedimint client signer boundary, end to end on a local federation | Planned |
 | 3 | Phone app and QR/UR on hardware | Planned |
 | 4 | Bluetooth through a KeyOS QuantumLink patch | Planned |
@@ -29,6 +29,12 @@ followed by a separate test commit.
 |---|---|
 | `docs/plan/` | The planning documents, including the Passport Prime / KeyOS reference |
 | `docs/PHASES.md` | What each phase delivered, measured results, and what is still open |
+| `docs/KEY_SCHEME.md`, `docs/PROTOCOL.md`, `docs/SECURITY.md` | The key scheme, the wire protocol, and the security model |
+| `crates/protocol/` | `fps-protocol`: CBOR messages between phone and device |
+| `crates/signer-core/` | `fps-signer-core`: fedimint decoding, key scheme, analysis, signing, ecash release |
+| `crates/policy/` | `fps-policy`: spending limits |
+| `crates/signer/` | `fps-signer`: the service the KeyOS app embeds |
+| `devtools/` | Host-only: golden vectors and cross-checks against the real fedimint crates |
 | `spikes/xous-crypto/` | Phase 0 spike: the signer's crypto and encoding dependencies, built for the device |
 | `scripts/` | `sdk-shell.sh` runs a command in the Foundation SDK shell; `device-build.sh` builds crates for Passport Prime |
 
@@ -41,11 +47,19 @@ cargo test --workspace
 cargo run --release -p fps-spike-xous-crypto --bin spike-bench
 ```
 
+The cross-checks against fedimint 0.13.0-beta.1 live in their own workspace, because the fedimint
+crates only build on the host (they need a C and C++ toolchain, CMake and libclang):
+
+```sh
+cargo test --release --manifest-path devtools/Cargo.toml
+cargo run --release --manifest-path devtools/Cargo.toml --bin golden   # regenerate vectors
+```
+
 Device builds need Nix and the Foundation SDK (1.1.0, installed under `~/.foundation/sdk`). They
 use the SDK's pinned nightly and the `armv7a-unknown-xous-elf` target:
 
 ```sh
-scripts/device-build.sh -p fps-spike-xous-crypto
+scripts/device-build.sh -p fps-signer -p fps-signer-core -p fps-protocol -p fps-policy --release
 ```
 
 ## Target platform
