@@ -42,7 +42,14 @@ jobs:
   # whole federation in the test process, and its LND client needs protoc to build.
   wallet:
     runs-on: ubuntu-latest
+    env:
+      # With full debug info, fedimint's test binaries fill the runner's disk and the linker dies
+      # with a bus error. Line tables are enough for backtraces.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
+      - name: Free disk space
+        # The runner's preinstalled SDKs leave too little room for fedimint's build.
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -50,6 +57,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: wallet
+          # A cold build takes about an hour, so keep it even when a test fails.
+          cache-on-failure: true
       - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev cmake protobuf-compiler
       - name: fedimint with the patch series
         run: scripts/fedimint-checkout.sh
