@@ -19,8 +19,8 @@ followed by a separate test commit.
 | 1B | KeyOS app on the simulator with the file bridge | Done |
 | 2A | fedimint signer boundary and the watch-only client, on an in-process federation | Done |
 | 2B | The watch-only wallet against the KeyOS app in the simulator, on-chain withdrawal | Done |
-| 3 | Phone app with fedimint-sdk bindings, QR/UR on hardware | Next |
-| 4 | Bluetooth through a KeyOS QuantumLink patch | Planned |
+| 3 | Phone app with fedimint-sdk bindings, QR/UR on hardware | In progress |
+| 4 | Bluetooth: a network stand-in for QuantumLink in the simulator, the KeyOS patch once there is a device | Stand-in done |
 | 5 | NFC tap-to-approve (optional) | Planned |
 | 6 | Hardening and upstreaming | Planned |
 
@@ -110,13 +110,17 @@ scripts/app-device-build.sh
 ```
 
 In the simulator the app also serves a file bridge, `~/.fps-signer-sim`, which takes request
-envelopes in `inbox/` and answers in `outbox/` (see [`docs/PROTOCOL.md`](docs/PROTOCOL.md#transports)).
+envelopes in `inbox/` and answers in `outbox/`, and listens on TCP port 7865 for the phone app on the
+same network, a stand-in for QuantumLink while there is no device (both in
+[`docs/PROTOCOL.md`](docs/PROTOCOL.md#transports)). On the phone, Settings chooses between QR codes and
+the simulator over Wi-Fi.
 `foundation build` produces the signed bundle once a publisher identity exists.
 
 The end-to-end check plays the golden scenario through the simulator: the bridge, the screen, the
 system PIN, and a restart. The wallet check puts the app behind the watch-only wallet instead: pairing,
 Lightning payments and a refund, a withdrawal, a declined spend, and ecash sends, with every review
-decided by tapping the simulator screen. Each needs no other simulator running:
+decided by tapping the simulator screen, once over the file bridge and once over the network link.
+Each needs no other simulator running, and runs from a foreground shell:
 
 ```sh
 scripts/sim-e2e.sh

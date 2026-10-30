@@ -11,8 +11,8 @@ refuse_running_simulator() {
   fi
 }
 
-# Builds and starts the app with `foundation sim` and waits until its bridge is watching. The
-# simulator's output goes to $out/simulator-<name>.log.
+# Builds and starts the app with `foundation sim` and waits until the signer is open, with its
+# bridge and its network link up. The simulator's output goes to $out/simulator-<name>.log.
 start_simulator() {
   local log="$out/simulator-$1.log"
   # Job control gives the simulator its own process group, so stopping it stops all of it.
@@ -21,7 +21,7 @@ start_simulator() {
   sim_pid=$!
   set +m
   for _ in $(seq 1 1200); do
-    if grep -q "simulator bridge watching" "$log"; then
+    if grep -q "signer open" "$log"; then
       return 0
     fi
     if ! kill -0 "$sim_pid" 2>/dev/null; then

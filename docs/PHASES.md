@@ -10,8 +10,8 @@ and 2 are each split in two because they are the largest.
 | 1B | Stage 1 | KeyOS app on the simulator with the file bridge | Done |
 | 2A | Stage 2 | fedimint signer boundary and the watch-only client, on an in-process federation | Done |
 | 2B | Stage 2 | The watch-only wallet against the KeyOS app in the simulator, on-chain withdrawal | Done |
-| 3 | Stage 3 | Phone app with fedimint-sdk bindings, QR/UR, hardware | Next |
-| 4 | Stage 4 | Bluetooth through a KeyOS QuantumLink patch | Planned |
+| 3 | Stage 3 | Phone app with fedimint-sdk bindings, QR/UR, hardware | In progress: the core and the iOS app are done, hardware is pending |
+| 4 | Stage 4 | Bluetooth: a network stand-in for QuantumLink in the simulator now, the KeyOS patch once there is a device | Stand-in done |
 | 5 | Stage 5 | NFC tap-to-approve (optional) | Planned |
 | 6 | Stage 6 | Hardening and upstreaming | Planned |
 
@@ -349,3 +349,67 @@ withdrawal test and skips the simulator test, which needs the Foundation SDK.
 - The hand cannot type the PIN, so the wallet test stays under the PIN threshold. Phase 1B's scenario
   covers an approval with the PIN.
 - Re-authorising a gateway after an app restart, and the database migrations (Phase 6).
+
+## Phase 4: the network link, a stand-in for QuantumLink
+
+The plan's Stage 4 puts the phone and Prime on Bluetooth through a KeyOS QuantumLink patch, which
+needs a dev unit and custom firmware. There is no device yet, and the hosted simulator has no radio:
+KeyOS's Bluetooth server does nothing in hosted mode. This phase builds the wireless path with a
+stand-in link, so every flow runs the way it will over Bluetooth and only the bottom transport
+differs: the simulator app listens on TCP, and the phone on the same network connects to it.
+
+### Delivered
+
+| Path | What it is |
+|---|---|
+| `crates/transport/src/net.rs` | Both ends of the link: length-framed envelopes over TCP, one exchange per connection. The app's `Listener` accepts on a thread and queues each request with its connection; the phone's end connects, sends and waits for the answer |
+| `prime-app/src/netlink.rs` | The app's end in the simulator: listens on `$FPS_NET_ADDR` (default `0.0.0.0:7865`), feeds requests through the same handling as scanned ones, and answers on the request's connection. Device builds compile none of it, and the device build of `fps-transport` leaves the module out |
+| `wallet/fps-wallet` | `NetworkLink`, the phone's end for the watch-only client |
+| `wallet/fps-mobile` | `Wallet::set_simulator_address`: the app switches between its own link (QR codes) and the simulator over the network at any time, without reopening the wallet |
+| `ios/` | Settings: a Connection choice, QR codes or the simulator over Wi-Fi, and the Mac's address |
+
+How it works:
+
+1. The phone connects and sends the request envelope. The app's listener reads it and queues it.
+2. The app takes one request at a time, between reviews, exactly as it takes bridge requests. A
+   review shows on the simulator screen; the connection stays open while the person decides.
+3. The answer envelope goes back on the same connection, which then closes. A request that arrives
+   while a review is on screen waits in order.
+
+The link carries the same bytes as every other transport, and the app's channel handling for it is
+the one Bluetooth will use: the answer returns on the link instead of being shown as a code.
+
+### How it is verified
+
+`scripts/sim-wallet-e2e.sh` runs the wallet scenario twice, each time on a fresh app: over the file
+bridge, then over the network link. Both runs deal with the same 13 screens, from pairing through
+Lightning, a withdrawal, a declined spend and ecash sends, with every review decided by tapping the
+simulator screen.
+
+| Run | Screens | Time once built |
+|---|---|---|
+| File bridge | 13 | 34 s |
+| Network link | 13 | 27 s |
+
+`fps-transport` gains seven tests for the link: framing, the message limit on both ends, an answer
+that arrives after a wait, requests queued in order while one is on screen, the phone's timeout, a
+closed port, and a bare host getting the default port.
+
+### Findings
+
+- **The simulator stops when `foundation sim` loses its stdin.** Started from a shell that closes
+  stdin, the simulator asks for shutdown about four seconds in and every request times out. The
+  simulator scripts must run from a foreground shell; starting it by hand needs stdin kept open,
+  for example with a pipe from `sleep`.
+- **Tests must not guess closed ports.** A transport test flipped one bit of its own port to find a
+  closed one and hit another test's live listener, whose scenario then took the stray request. It
+  connects to port 1 now, which is reserved.
+- **No security on the stand-in.** There is no encryption or authentication, so it is for a network
+  you control. QuantumLink provides both on hardware, where this link does not exist.
+
+### Still open
+
+- QuantumLink itself: the KeyOS patch, custom firmware and a dev unit, as the plan's Stage 4 says.
+- While a request waits on the simulator, the phone's busy note names the operation, not that
+  someone must approve on Prime.
+- The Android app has the switch in its Kotlin bindings and no screen for it yet.

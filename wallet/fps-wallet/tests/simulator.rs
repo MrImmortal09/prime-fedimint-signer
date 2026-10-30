@@ -6,10 +6,12 @@
 //! in this process.
 //!
 //! `scripts/sim-wallet-e2e.sh` starts the simulator and runs this test, which is ignored
-//! otherwise. Settings: `FPS_SIM_DIR`, the bridge directory; `FPS_SIM_DRIVE`, passport-drive
-//! (default `foundation-passport-drive` on `PATH`); `FPS_SIM_SHOTS`, where screenshots go
-//! (default `target/sim-wallet`). Amounts stay under the app's PIN threshold, so no review asks
-//! for the PIN.
+//! otherwise. Settings: `FPS_SIM_LINK`, `bridge` (the file bridge, the default) or `net` (the
+//! network link, the stand-in for QuantumLink, at `FPS_NET_ADDR`, default `127.0.0.1:7865`);
+//! `FPS_SIM_DIR`, the bridge directory; `FPS_SIM_DRIVE`, passport-drive (default
+//! `foundation-passport-drive` on `PATH`); `FPS_SIM_SHOTS`, where screenshots go (default
+//! `target/sim-wallet`). Amounts stay under the app's PIN threshold, so no review asks for the
+//! PIN.
 
 mod common;
 
@@ -36,8 +38,9 @@ use fedimint_walletv2_client::WalletClientModule;
 use fps_protocol::Delivery;
 use fps_simdrive::{Decision, Hand, Screen, Seen};
 use fps_transport::bridge::Bridge;
+use fps_transport::net::DEFAULT_PORT;
 use fps_wallet::DeviceKeys;
-use fps_wallet::device::{BridgeLink, Device};
+use fps_wallet::device::{BridgeLink, Device, NetworkLink};
 use fps_wallet::send::SendError;
 use serde_json::Value;
 
@@ -48,6 +51,24 @@ const TOKEN_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn setting(name: &str, default: &str) -> PathBuf {
     std::env::var_os(name).map_or_else(|| PathBuf::from(default), PathBuf::from)
+}
+
+/// The app, over the link `FPS_SIM_LINK` names.
+fn prime() -> anyhow::Result<Device> {
+    let link = std::env::var("FPS_SIM_LINK").unwrap_or_default();
+    Ok(match link.as_str() {
+        "" | "bridge" => Device::new(Arc::new(BridgeLink::new(
+            Bridge::from_env(),
+            ANSWER_TIMEOUT,
+        ))),
+        "net" => {
+            let address = std::env::var("FPS_NET_ADDR")
+                .unwrap_or_else(|_| format!("127.0.0.1:{DEFAULT_PORT}"));
+            println!("Reaching the app over the network at {address}");
+            Device::new(Arc::new(NetworkLink::new(address, ANSWER_TIMEOUT)))
+        }
+        other => bail!("FPS_SIM_LINK must be bridge or net, not {other:?}"),
+    })
 }
 
 /// The `n`th token the app showed (counting from one), as the hand read it off the screen.
@@ -95,10 +116,7 @@ async fn the_app_in_the_simulator_signs_for_the_wallet() -> anyhow::Result<()> {
     )
     .map_err(anyhow::Error::msg)?;
     let hand = Hand::start(screen).map_err(anyhow::Error::msg)?;
-    let prime = Device::new(Arc::new(BridgeLink::new(
-        Bridge::from_env(),
-        ANSWER_TIMEOUT,
-    )));
+    let prime = prime()?;
     let outcome = scenario(&hand, prime).await;
     // The hand's own failure explains a wallet step that waited for an answer in vain.
     match (outcome, hand.stop()) {
