@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = ["spikes/xous-crypto"]
+# Built separately: `prime-app` by the Foundation SDK, `devtools` against the real fedimint crates.
+exclude = ["prime-app", "devtools"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+# The device toolchain is the Foundation SDK's pinned nightly (1.96.0-nightly, 2026-04-10).
+# Everything in this workspace must build on it as well as on current stable.
+rust-version = "1.85"
+publish = false
+
+[workspace.dependencies]
+# Versions match what fedimint 0.13.0-beta.1 resolves, so golden vectors produced with the
+# real fedimint crates exercise the same curve and hash implementations.
+bitcoin = { version = "0.32", default-features = false, features = ["std"] }
+bls12_381 = "0.8"
+group = "0.13"
+rand_chacha = "0.3"
+rand_core = "0.6"
+sha3 = "0.10"
+ciborium = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"
+lightning-invoice = "0.33"
+
+[profile.release]
+opt-level = "s"
