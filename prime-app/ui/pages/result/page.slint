@@ -14,16 +14,20 @@ export component ResultPagePage inherits Rectangle {
         padding-right: Theme.spacing-xl;
         padding-top: Theme.spacing-xl + UISize.control-center-status-bar-height;
         padding-bottom: Theme.spacing-xl;
-        spacing: Theme.spacing-lg;
+        spacing: 12px;
+
+        Text { text: Callbacks.result-secret ? "ECASH / BEARER TOKEN" : "RESPONSE / RETURN TO PHONE"; color: Theme.palette-primary; font-family: Theme.font-primary; font-size: 14px; font-weight: 600; }
 
         Heading { text: Callbacks.result-title; }
 
         Muted { text: Callbacks.result-message; }
 
+        if Callbacks.notice != "" && !Callbacks.result-secret: Muted { text: Callbacks.notice; font-size: 14px; }
+
         if Callbacks.result-frames.length > 0: HorizontalLayout {
             alignment: center;
             AnimatedQr {
-                width: UISize.screen-width - Theme.spacing-xl * 2;
+                width: min(304px, UISize.screen-width - Theme.spacing-xl * 2);
                 height: self.width;
                 frames: Callbacks.result-frames;
             }
@@ -38,11 +42,13 @@ export component ResultPagePage inherits Rectangle {
             wrap: word-wrap;
         }
 
+        if !Callbacks.result-secret: Muted { text: "This is an authorization response. Your phone checks the result and completes the operation."; font-size: 14px; }
+
         Rectangle { vertical-stretch: 1; }
 
         Button {
             width: 100%;
-            text: Callbacks.result-has-next ? "Next" : "Done";
+            text: Callbacks.result-has-next ? "Next" : "Return home";
             size: ControlSize.lg;
             full-width: true;
             clicked => {

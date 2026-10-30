@@ -29,7 +29,7 @@ pub use hand::{Decision, Hand, Seen};
 
 /// The review screen's Reject and Approve buttons, and the result screen's Done button.
 pub const REJECT: (u32, u32) = (124, 742);
-pub const APPROVE: (u32, u32) = (356, 742);
+pub const APPROVE: (u32, u32) = (88, 668);
 pub const DONE: (u32, u32) = (240, 742);
 
 /// Points inside the bottom buttons, clear of their labels: the review screen's Reject (left) and
@@ -155,6 +155,19 @@ impl Screen {
 
     pub fn tap(&mut self, (x, y): (u32, u32)) -> Result<(), String> {
         self.tool("tap", json!({ "x": x, "y": y })).map(|_| ())
+    }
+
+    /// Deliberately slide across the SDK confirmation control, as a person would.
+    pub fn approve(&mut self) -> Result<(), String> {
+        self.tool(
+            "swipe",
+            json!({
+                "start_x": APPROVE.0, "start_y": APPROVE.1,
+                "end_x": 424, "end_y": APPROVE.1,
+                "duration_ms": 650, "steps": 24
+            }),
+        )
+        .map(|_| ())
     }
 
     /// Forgets the log lines collected so far, so [`Screen::wait_for_log`] sees only new ones.
@@ -332,9 +345,16 @@ pub enum Shown {
     Result(String),
 }
 
-/// The review screen is drawn: a grey Reject button beside a yellow Approve button.
+/// The review screen is drawn: a copper slider above the charcoal Reject button.
 pub fn shows_review(png: &[u8]) -> bool {
-    matches!(button_colours(png), Some((left, right)) if is_grey(left) && is_accent(right))
+    let Some(image) = image::load_from_memory(png)
+        .ok()
+        .map(|image| image.to_rgb8())
+    else {
+        return false;
+    };
+    matches!((image.get_pixel_checked(40, 668), image.get_pixel_checked(60, 742)),
+        (Some(slider), Some(reject)) if is_accent(slider.0) && is_grey(reject.0))
 }
 
 /// A result screen is drawn: one yellow Done button across the screen.
@@ -349,12 +369,14 @@ fn button_colours(png: &[u8]) -> Option<([u8; 3], [u8; 3])> {
     Some((colour(LEFT_BUTTON)?, colour(RIGHT_BUTTON)?))
 }
 
-/// The yellow of the app's main buttons: Approve, Done.
+/// The copper of the approval thumb and primary buttons.
 fn is_accent([red, green, blue]: [u8; 3]) -> bool {
-    red > 150 && green > 120 && blue < 110
+    let copper = |r, g, b| r > 180 && (120..=190).contains(&g) && (80..=150).contains(&b);
+    // Some hosted SDK screenshot exports use BGR byte order.
+    copper(red, green, blue) || copper(blue, green, red)
 }
 
-/// The grey of its other buttons: Reject, and Scan request on the home screen.
+/// The charcoal secondary button.
 fn is_grey([red, green, blue]: [u8; 3]) -> bool {
-    (60..=160).contains(&red) && red.abs_diff(green) < 12 && red.abs_diff(blue) < 12
+    (40..=100).contains(&red) && red.abs_diff(green) < 12 && red.abs_diff(blue) < 12
 }

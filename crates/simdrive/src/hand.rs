@@ -168,7 +168,11 @@ fn work(screen: &mut Screen, shared: &Shared) -> Result<(), String> {
         };
         // Cleared before the tap: the app logs nothing new until the tap lands.
         screen.clear_logs()?;
-        screen.tap(tap)?;
+        if tap == APPROVE {
+            screen.approve()?;
+        } else {
+            screen.tap(tap)?;
+        }
         screen
             .wait_for_new_screen(&png)
             .map_err(|error| format!("after the tap at {tap:?}: {error}"))?;

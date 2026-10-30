@@ -22,6 +22,7 @@ struct ReceiveView: View {
 
     var body: some View {
         Form {
+            Section { WalletNotice(title: "Receive without Passport", message: "Your phone handles incoming payments. Prime is needed for spending authorization.", symbol: "arrow.down.left") }
             Picker("Kind", selection: $kind) {
                 ForEach(Kind.allCases) { Text($0.rawValue).tag($0) }
             }
@@ -35,6 +36,8 @@ struct ReceiveView: View {
             }
         }
         .navigationTitle("Receive")
+        .disabled(model.busy != nil)
+        .scrollContentBackground(.hidden).background(WalletStyle.background)
     }
 
     @ViewBuilder private var ecash: some View {

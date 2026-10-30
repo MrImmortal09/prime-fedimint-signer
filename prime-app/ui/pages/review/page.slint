@@ -1,108 +1,46 @@
 import { Theme, UISize, ControlSize, ButtonVariant } from "@ui/theme.slint";
 import { Button } from "@ui/button.slint";
+import { SlideToConfirm } from "@ui/slide_to_confirm.slint";
 import { Callbacks } from "../../callbacks.slint";
 import { Heading, Muted } from "../../widgets.slint";
 
-// What the device decided a request does. Every value here was computed on the device from the
-// request's bytes, never taken from labels the phone supplied.
 export component ReviewPagePage inherits Rectangle {
     background: Theme.palette-background;
-
     VerticalLayout {
-        width: parent.width;
-        height: parent.height;
-        padding-left: Theme.spacing-xl;
-        padding-right: Theme.spacing-xl;
-        padding-top: Theme.spacing-xl + UISize.control-center-status-bar-height;
-        padding-bottom: Theme.spacing-xl;
-        spacing: Theme.spacing-md;
-
-        Heading { text: Callbacks.review-title; }
-
+        padding: 24px; padding-top: 20px + UISize.control-center-status-bar-height; spacing: 12px;
+        Text { text: "REVIEW / AUTHORIZE"; color: Theme.palette-primary; font-family: Theme.font-primary; font-size: 14px; font-weight: 600; }
+        Heading { text: Callbacks.review-title; horizontal-alignment: left; }
         if Callbacks.review-amount != "": Text {
-            text: Callbacks.review-amount;
-            color: Theme.palette-primary;
-            font-family: Theme.font-primary;
-            font-size: Theme.font-size-lg;
-            font-weight: Theme.font-weight-bold;
-            horizontal-alignment: center;
+            text: Callbacks.review-amount; color: Theme.palette-foreground; font-family: Theme.font-primary;
+            font-size: 38px; font-weight: 700; wrap: word-wrap;
         }
-
+        Muted { text: "Review every detail. Scroll for more."; horizontal-alignment: left; font-size: 14px; }
         Flickable {
             vertical-stretch: 1;
             VerticalLayout {
-                width: parent.width;
-                alignment: start;
-                spacing: Theme.spacing-sm;
-
+                width: parent.width; alignment: start; spacing: 8px;
                 for row in Callbacks.review-rows: Rectangle {
-                    background: Theme.palette-card;
-                    border-radius: Theme.radius-sm;
-                    border-width: 1px;
-                    border-color: Theme.palette-border;
+                    background: Theme.palette-card; border-radius: 12px;
                     VerticalLayout {
-                        padding: Theme.spacing-md;
-                        spacing: Theme.spacing-xs;
-                        Text {
-                            text: row.label;
-                            color: Theme.palette-muted;
-                            font-family: Theme.font-primary;
-                            font-size: Theme.font-size-label;
-                        }
-                        Text {
-                            text: row.value;
-                            color: Theme.palette-foreground;
-                            font-family: Theme.font-primary;
-                            font-size: Theme.font-size-subtitle;
-                            font-weight: Theme.font-weight-semibold;
-                            wrap: char-wrap;
-                        }
+                        padding: 16px; spacing: 6px;
+                        Text { text: row.label; color: Theme.palette-muted; font-family: Theme.font-primary; font-size: 14px; }
+                        Text { text: row.value; color: Theme.palette-foreground; font-family: Theme.font-primary; font-size: 18px; font-weight: 600; wrap: char-wrap; }
                     }
                 }
-
                 for warning in Callbacks.review-warnings: Rectangle {
-                    background: Theme.color-warning.with-alpha(0.15);
-                    border-radius: Theme.radius-sm;
-                    VerticalLayout {
-                        padding: Theme.spacing-md;
-                        Text {
-                            text: warning;
-                            color: Theme.palette-foreground;
-                            font-family: Theme.font-primary;
-                            font-size: Theme.font-size-label;
-                            wrap: word-wrap;
-                        }
-                    }
+                    background: Theme.color-warning.with-alpha(0.12); border-radius: 12px;
+                    VerticalLayout { padding: 16px; Text { text: warning; color: Theme.palette-foreground; font-family: Theme.font-primary; font-size: 16px; wrap: word-wrap; } }
                 }
+                Muted { text: "Prime analyzes each request. Imported federation configuration and names originate from the paired phone."; font-size: 14px; horizontal-alignment: left; }
             }
         }
-
-        if Callbacks.review-needs-pin: Muted {
-            text: "Approving asks for your PIN.";
-            font-size: Theme.font-size-label;
+        if Callbacks.status != "": Text { text: Callbacks.status; color: Theme.palette-danger; font-family: Theme.font-primary; font-size: 14px; wrap: word-wrap; }
+        if Callbacks.review-needs-pin: Muted { text: "Your device PIN is required after sliding."; font-size: 14px; }
+        SlideToConfirm {
+            width: 100%; height: 72px; label: "Slide"; hint: "to approve"; confirmed-label: "Authorizing…";
+            size: ControlSize.md; thumb-label-color: Theme.palette-background;
+            activated => { self.confirmed = false; Callbacks.approve(); }
         }
-
-        HorizontalLayout {
-            spacing: Theme.spacing-md;
-            Button {
-                horizontal-stretch: 1;
-                text: "Reject";
-                variant: ButtonVariant.secondary;
-                size: ControlSize.lg;
-                full-width: true;
-                clicked => {
-                    Callbacks.reject();
-                }
-            }
-            Button {
-                horizontal-stretch: 1;
-                text: "Approve";
-                size: ControlSize.lg;
-                full-width: true;
-                clicked => {
-                    Callbacks.approve();
-                }
-            }
-        }
+        Button { text: "Reject request"; variant: ButtonVariant.secondary; full-width: true; clicked => { Callbacks.reject(); } }
     }
 }
