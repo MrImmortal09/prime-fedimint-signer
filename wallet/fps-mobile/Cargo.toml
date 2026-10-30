@@ -1,0 +1,45 @@
+[package]
+name = "fps-mobile"
+description = "The phone wallet's core: a watch-only fedimint client with Passport Prime as its signer, exported to Kotlin with UniFFI"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "fps_mobile"
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+# Generates the Kotlin bindings from the built library: `cargo run --features bindgen --bin
+# uniffi-bindgen -- generate --library <lib> --language kotlin --out-dir <dir>`.
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[features]
+bindgen = ["uniffi/cli"]
+
+[dependencies]
+async-trait = "0.1"
+bitcoin.workspace = true
+ciborium.workspace = true
+fedimint-api-client.workspace = true
+fedimint-client.workspace = true
+fedimint-connectors.workspace = true
+fedimint-core.workspace = true
+fedimint-cursed-redb.workspace = true
+fedimint-lnv2-client.workspace = true
+fedimint-lnv2-common.workspace = true
+fedimint-mintv2-client.workspace = true
+fedimint-walletv2-client.workspace = true
+fps-protocol.workspace = true
+fps-signer-core.workspace = true
+fps-transport.workspace = true
+fps-wallet.workspace = true
+hex = "0.4"
+lightning-invoice = "0.33.2"
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+thiserror = "2"
+tokio.workspace = true
+uniffi = { version = "0.32", features = ["tokio"] }

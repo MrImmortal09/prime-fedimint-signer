@@ -3,7 +3,7 @@
 # fedimint crate comes from there, so no crates.io copy of a patched crate sneaks in.
 [workspace]
 resolver = "2"
-members = ["fps-wallet"]
+members = ["fps-mobile", "fps-wallet"]
 
 [workspace.package]
 version = "0.1.0"
@@ -16,6 +16,7 @@ fedimint-client = { path = "../third_party/fedimint/fedimint-client" }
 fedimint-client-module = { path = "../third_party/fedimint/fedimint-client-module" }
 fedimint-connectors = { path = "../third_party/fedimint/fedimint-connectors" }
 fedimint-core = { path = "../third_party/fedimint/fedimint-core" }
+fedimint-cursed-redb = { path = "../third_party/fedimint/fedimint-cursed-redb" }
 fedimint-derive-secret = { path = "../third_party/fedimint/crypto/derive-secret" }
 fedimint-dummy-client = { path = "../third_party/fedimint/modules/fedimint-dummy-client" }
 fedimint-dummy-common = { path = "../third_party/fedimint/modules/fedimint-dummy-common" }
@@ -38,6 +39,7 @@ fps-signer = { path = "../crates/signer" }
 fps-signer-core = { path = "../crates/signer-core" }
 fps-simdrive = { path = "../crates/simdrive" }
 fps-transport = { path = "../crates/transport" }
+fps-wallet = { path = "fps-wallet" }
 
 anyhow = "1"
 bitcoin = "0.32"

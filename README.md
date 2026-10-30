@@ -39,6 +39,7 @@ followed by a separate test commit.
 | `crates/simdrive/` | `fps-simdrive`: the simulator's screen for end-to-end tests, and a hand that approves reviews on it |
 | `prime-app/` | The KeyOS app, built with the Foundation SDK |
 | `wallet/` | `fps-wallet`: the phone side, a watch-only fedimint client with Prime as its signer |
+| `wallet/fps-mobile/` | `fps-mobile`: the phone wallet's core for the Android app, exported to Kotlin with UniFFI; the generated bindings are in `bindings/kotlin/` |
 | `patches/fedimint/` | The patch series that gives fedimint's client a signer boundary ([`docs/FEDIMINT_PATCHES.md`](docs/FEDIMINT_PATCHES.md)) |
 | `devtools/` | Host-only: golden vectors and cross-checks against the real fedimint crates |
 | `spikes/xous-crypto/` | Phase 0 spike: the signer's crypto and encoding dependencies, built for the device |
