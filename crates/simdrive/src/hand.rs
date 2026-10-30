@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use crate::{read_qr_png, shows_result, shows_review, Screen, Shown, APPROVE, DONE, REJECT};
+use crate::{read_qr_png, shows_result, shows_review, Screen, Shown, DONE, REJECT};
 
 /// How often the hand looks for a new screen.
 const POLL: Duration = Duration::from_millis(100);
@@ -137,14 +137,37 @@ impl Drop for Hand {
     }
 }
 
+enum Action {
+    Review(Decision),
+    Done,
+}
+
+impl Action {
+    fn perform(&self, screen: &mut Screen) -> Result<(), String> {
+        match self {
+            Self::Review(Decision::Approve) => screen.approve(),
+            Self::Review(Decision::Reject) => screen.tap(REJECT),
+            Self::Done => screen.tap(DONE),
+        }
+    }
+
+    fn description(&self) -> &'static str {
+        match self {
+            Self::Review(Decision::Approve) => "approval swipe",
+            Self::Review(Decision::Reject) => "Reject tap",
+            Self::Done => "Done tap",
+        }
+    }
+}
+
 fn work(screen: &mut Screen, shared: &Shared) -> Result<(), String> {
     while !shared.stop.load(Ordering::SeqCst) {
         let Some(shown) = screen.shown()? else {
             std::thread::sleep(POLL);
             continue;
         };
-        // The log line comes before the screen is drawn: wait for the screen, then tap.
-        let (png, tap) = match shown {
+        // The log line comes before drawing: identify a stable screen before acting.
+        let (png, action) = match shown {
             Shown::Review(title) => {
                 let png = screen.wait_until(shows_review)?;
                 screen.save(&format!("review-{}", slug(&title)), &png)?;
@@ -152,30 +175,22 @@ fn work(screen: &mut Screen, shared: &Shared) -> Result<(), String> {
                     .pop_front()
                     .unwrap_or(Decision::Approve);
                 lock(&shared.seen).push(Seen::Review { title, decision });
-                let tap = match decision {
-                    Decision::Approve => APPROVE,
-                    Decision::Reject => REJECT,
-                };
-                (png, tap)
+                (png, Action::Review(decision))
             }
             Shown::Result(title) => {
                 let png = screen.wait_until(shows_result)?;
                 screen.save(&format!("result-{}", slug(&title)), &png)?;
                 let qr = read_qr_png(&png).ok();
                 lock(&shared.seen).push(Seen::Result { title, qr });
-                (png, DONE)
+                (png, Action::Done)
             }
         };
-        // Cleared before the tap: the app logs nothing new until the tap lands.
+        // Clear only after identifying the expected screen; the next action produces new logs.
         screen.clear_logs()?;
-        if tap == APPROVE {
-            screen.approve()?;
-        } else {
-            screen.tap(tap)?;
-        }
+        action.perform(screen)?;
         screen
             .wait_for_new_screen(&png)
-            .map_err(|error| format!("after the tap at {tap:?}: {error}"))?;
+            .map_err(|error| format!("after the {}: {error}", action.description()))?;
     }
     Ok(())
 }

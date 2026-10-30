@@ -1,0 +1,167 @@
+diff --git a/utils/passport-drive/src/main.rs b/utils/passport-drive/src/main.rs
+index 10d27e8..3636080 100644
+--- a/utils/passport-drive/src/main.rs
++++ b/utils/passport-drive/src/main.rs
+@@ -433,8 +433,8 @@ fn reject_hardware_only(command: &CliCommand) -> Result<()> {
+     bail!("{name} needs a real device: the simulator has no USB, no SAM-BA bootloader and no hardware kernel")
+ }
+
+-fn save_screenshot_png(payload: &[u8], output: &PathBuf) -> Result<()> {
+-    let png_data = screenshot::bgra_to_png(payload).map_err(|e| anyhow::anyhow!(e))?;
++fn save_screenshot_png(payload: &[u8], output: &PathBuf, simulator: bool) -> Result<()> {
++    let png_data = screenshot::screenshot_to_png(payload, simulator).map_err(|e| anyhow::anyhow!(e))?;
+     std::fs::write(output, &png_data).with_context(|| format!("Cannot create {}", output.display()))?;
+     eprintln!("Saved {}", output.display());
+     Ok(())
+@@ -442,10 +442,10 @@ fn save_screenshot_png(payload: &[u8], output: &PathBuf) -> Result<()> {
+
+ // Higher-level actions
+
+-fn do_screenshot(client: &DebugClient, output: &PathBuf) -> Result<()> {
++fn do_screenshot(client: &DebugClient, output: &PathBuf, simulator: bool) -> Result<()> {
+     eprintln!("Taking screenshot...");
+     let payload = client.send(Command::Screenshot, Duration::from_secs(20))?;
+-    save_screenshot_png(&payload, output)
++    save_screenshot_png(&payload, output, simulator)
+ }
+
+ fn do_tap(client: &DebugClient, x: u16, y: u16) -> Result<()> {
+@@ -650,7 +650,7 @@ enum Action {
+     InputText(String),
+ }
+
+-fn run_actions(client: &DebugClient, actions: &[Action]) -> Result<()> {
++fn run_actions(client: &DebugClient, actions: &[Action], simulator: bool) -> Result<()> {
+     for (i, action) in actions.iter().enumerate() {
+         match action {
+             Action::Tap([x, y]) => {
+@@ -663,7 +663,7 @@ fn run_actions(client: &DebugClient, actions: &[Action]) -> Result<()> {
+             }
+             Action::Screenshot(path) => {
+                 eprintln!("[{i}] screenshot -> {path}");
+-                do_screenshot(client, &PathBuf::from(path))?;
++                do_screenshot(client, &PathBuf::from(path), simulator)?;
+             }
+             Action::Wait(ms) => {
+                 eprintln!("[{i}] wait {ms}ms");
+@@ -844,7 +844,7 @@ fn main() -> Result<()> {
+     let client = &open_transport(sim.as_deref())?;
+
+     match cli.command {
+-        CliCommand::Screenshot { output } => do_screenshot(client, &output)?,
++        CliCommand::Screenshot { output } => do_screenshot(client, &output, sim.is_some())?,
+         CliCommand::Tap { x, y } => do_tap(client, x, y)?,
+         CliCommand::Swipe { sx, sy, ex, ey, duration_ms, steps } => {
+             do_swipe(client, sx, sy, ex, ey, duration_ms, steps)?;
+@@ -854,18 +854,18 @@ fn main() -> Result<()> {
+         CliCommand::TapScreenshot { x, y, output, wait } => {
+             do_tap(client, x, y)?;
+             std::thread::sleep(Duration::from_millis(wait));
+-            do_screenshot(client, &output)?;
++            do_screenshot(client, &output, sim.is_some())?;
+         }
+         CliCommand::SwipeScreenshot { sx, sy, ex, ey, duration_ms, steps, output, wait } => {
+             do_swipe(client, sx, sy, ex, ey, duration_ms, steps)?;
+             std::thread::sleep(Duration::from_millis(wait));
+-            do_screenshot(client, &output)?;
++            do_screenshot(client, &output, sim.is_some())?;
+         }
+         CliCommand::Run { file } => {
+             let content =
+                 std::fs::read_to_string(&file).with_context(|| format!("Cannot read {}", file.display()))?;
+             let actions: Vec<Action> = serde_json::from_str(&content).context("Invalid JSON actions file")?;
+-            run_actions(client, &actions)?;
++            run_actions(client, &actions, sim.is_some())?;
+         }
+         CliCommand::LaunchApp { app_id } => {
+             let hex = app_id.strip_prefix("0x").unwrap_or(&app_id);
+diff --git a/utils/passport-drive/src/mcp.rs b/utils/passport-drive/src/mcp.rs
+index 03d29c1..4955a07 100644
+--- a/utils/passport-drive/src/mcp.rs
++++ b/utils/passport-drive/src/mcp.rs
+@@ -444,7 +444,7 @@ impl PassportServer {
+             .send(Command::Screenshot, Duration::from_secs(20))
+             .map_err(|e| format!("Screenshot failed: {e}"))?;
+
+-        let png = crate::screenshot::bgra_to_png(&payload)?;
++        let png = crate::screenshot::screenshot_to_png(&payload, sim_addr().is_some())?;
+         let base64 = base64::engine::general_purpose::STANDARD.encode(&png);
+         Ok(CallToolResult::success(vec![ContentBlock::image(base64, "image/png")]))
+     }
+diff --git a/utils/passport-drive/src/screenshot.rs b/utils/passport-drive/src/screenshot.rs
+index 84079d7..d1cbd21 100644
+--- a/utils/passport-drive/src/screenshot.rs
++++ b/utils/passport-drive/src/screenshot.rs
+@@ -1,23 +1,25 @@
+ // SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
+ // SPDX-License-Identifier: GPL-3.0-or-later
+
+-//! Shared BGRA → PNG pixel conversion for screenshots.
++//! Transport-specific screenshot pixel conversion: simulator RGBA, hardware BGRA.
+
+ use crate::{FB_SIZE, SCREEN_HEIGHT, SCREEN_WIDTH};
+
+-/// Convert BGRA8888 pixel data to a PNG byte buffer.
+-pub fn bgra_to_png(bgra: &[u8]) -> Result<Vec<u8>, String> {
+-    if bgra.len() < FB_SIZE {
+-        return Err(format!("Screenshot payload too small: {} bytes, expected {}", bgra.len(), FB_SIZE));
++/// The capture API returns RGBA8888 on the simulator and BGRA8888 on hardware.
++pub fn screenshot_to_png(pixels: &[u8], simulator: bool) -> Result<Vec<u8>, String> {
++    if pixels.len() < FB_SIZE {
++        return Err(format!("Screenshot payload too small: {} bytes, expected {}", pixels.len(), FB_SIZE));
+     }
+
++    let red = if simulator { 0 } else { 2 };
++    let blue = if simulator { 2 } else { 0 };
+     let pixel_count = FB_SIZE / 4;
+     let mut rgb = vec![0u8; pixel_count * 3];
+     for i in (0..FB_SIZE).step_by(4) {
+         let j = (i / 4) * 3;
+-        rgb[j] = bgra[i + 2]; // R
+-        rgb[j + 1] = bgra[i + 1]; // G
+-        rgb[j + 2] = bgra[i]; // B
++        rgb[j] = pixels[i + red]; // R
++        rgb[j + 1] = pixels[i + 1]; // G
++        rgb[j + 2] = pixels[i + blue]; // B
+     }
+
+     let mut png_buf = Vec::new();
+@@ -30,3 +32,38 @@ pub fn bgra_to_png(bgra: &[u8]) -> Result<Vec<u8>, String> {
+     }
+     Ok(png_buf)
+ }
++
++#[cfg(test)]
++mod tests {
++    use std::io::Cursor;
++
++    use super::*;
++
++    fn first_pixel(payload: &[u8], simulator: bool) -> [u8; 3] {
++        let bytes = screenshot_to_png(payload, simulator).unwrap();
++        let mut decoder = png::Decoder::new(Cursor::new(bytes)).read_info().unwrap();
++        let mut output = vec![0; decoder.output_buffer_size()];
++        decoder.next_frame(&mut output).unwrap();
++        output[..3].try_into().unwrap()
++    }
++
++    #[test]
++    fn simulator_preserves_rgba_channel_order() {
++        let mut payload = vec![0; FB_SIZE];
++        payload[..4].copy_from_slice(&[214, 154, 120, 255]);
++        assert_eq!(first_pixel(&payload, true), [214, 154, 120]);
++    }
++
++    #[test]
++    fn hardware_decodes_bgra_channel_order() {
++        let mut payload = vec![0; FB_SIZE];
++        payload[..4].copy_from_slice(&[120, 154, 214, 255]);
++        assert_eq!(first_pixel(&payload, false), [214, 154, 120]);
++    }
++
++    #[test]
++    fn truncated_capture_is_rejected() {
++        assert!(screenshot_to_png(&[], true).is_err());
++        assert!(screenshot_to_png(&[], false).is_err());
++    }
++}

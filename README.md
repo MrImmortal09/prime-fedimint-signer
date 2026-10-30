@@ -2,7 +2,7 @@
 
 A Fedimint hardware signer for Foundation's **Passport Prime**. A phone app is the networked
 Fedimint wallet; Passport Prime holds the spend keys, decodes every spend from raw bytes, shows it
-on its trusted display, and signs only after a tap. Receiving never needs the device.
+on its trusted display, and signs only after a deliberate approval slide. Receiving never needs the device.
 
 The design, the decisions behind it and the execution plan are in [`docs/plan/`](docs/plan/00_INDEX.md).
 Progress by phase is in [`docs/PHASES.md`](docs/PHASES.md).
@@ -116,7 +116,7 @@ envelopes in `inbox/` and answers in `outbox/` (see [`docs/PROTOCOL.md`](docs/PR
 The end-to-end check plays the golden scenario through the simulator: the bridge, the screen, the
 system PIN, and a restart. The wallet check puts the app behind the watch-only wallet instead: pairing,
 Lightning payments and a refund, a withdrawal, a declined spend, and ecash sends, with every review
-decided by tapping the simulator screen. Each needs no other simulator running:
+decided by sliding to approve or tapping Reject on the simulator screen. Each needs no other simulator running:
 
 ```sh
 scripts/sim-e2e.sh

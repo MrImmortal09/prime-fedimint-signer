@@ -29,10 +29,10 @@ export component MainPagePage inherits Rectangle {
                 for federation in Callbacks.federations: Card { width: 100%; title: federation.name; body: federation.detail; }
                 if Callbacks.ledger-note != "": Muted { text: Callbacks.ledger-note; font-size: 14px; }
                 if Callbacks.notice != "": Muted { text: Callbacks.notice; font-size: 14px; }
-                if Callbacks.status != "": Text { text: Callbacks.status; color: Theme.palette-danger; font-family: Theme.font-primary; font-size: 16px; wrap: word-wrap; }
             }
         }
-        Button { text: Callbacks.status == "" ? "Scan Request" : "Try scanning again"; size: ControlSize.lg; full-width: true; clicked => { Callbacks.scan-request(); } }
+        if Callbacks.status != "": Text { text: Callbacks.status; color: Theme.palette-danger; font-family: Theme.font-primary; font-size: 16px; wrap: word-wrap; }
+        Button { text: "Scan Request"; size: ControlSize.lg; full-width: true; clicked => { Callbacks.scan-request(); } }
         Button { text: "Federations & Settings"; variant: ButtonVariant.secondary; full-width: true; clicked => { Navigate.settings-page({ }); } }
         Muted { text: "QR connection · No Bluetooth required"; font-size: 14px; }
     }

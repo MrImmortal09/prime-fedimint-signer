@@ -3,7 +3,7 @@
 #
 # Starts the app with `foundation sim` and runs the wallet's simulator test
 # (wallet/fps-wallet/tests/simulator.rs): a federation in this process, the app signing over the
-# file bridge, and every review decided by tapping the simulator screen. Then stops the simulator
+# file bridge, and every review decided by an approval swipe or a Reject tap. Then stops the simulator
 # and puts the developer's own simulator seed back. Needs the Foundation SDK (see
 # scripts/sdk-shell.sh) and the fedimint checkout (scripts/fedimint-checkout.sh). Screenshots and
 # the simulator log land in target/sim-wallet/.

@@ -28,7 +28,7 @@ struct RootView: View {
                 .interactiveDismissDisabled()
         }
         .alert(
-            "Operation interrupted",
+            "Something went wrong",
             isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })
         ) {
             Button("OK", role: .cancel) {}

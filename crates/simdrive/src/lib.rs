@@ -27,13 +27,13 @@ use serde_json::{json, Value};
 
 pub use hand::{Decision, Hand, Seen};
 
-/// The review screen's Reject and Approve buttons, and the result screen's Done button.
+/// The full-width Reject and Done buttons, and the approval slider gesture origin.
 pub const REJECT: (u32, u32) = (124, 742);
-pub const APPROVE: (u32, u32) = (88, 668);
+pub const APPROVE_START: (u32, u32) = (88, 668);
 pub const DONE: (u32, u32) = (240, 742);
 
-/// Points inside the bottom buttons, clear of their labels: the review screen's Reject (left) and
-/// Approve (right), both inside a result screen's Done.
+/// Points well inside both edges of the full-width Reject/Done button, clear of text.
+/// The home screen has its footer at this height, not a button.
 const LEFT_BUTTON: (u32, u32) = (60, 760);
 const RIGHT_BUTTON: (u32, u32) = (420, 760);
 
@@ -162,8 +162,8 @@ impl Screen {
         self.tool(
             "swipe",
             json!({
-                "start_x": APPROVE.0, "start_y": APPROVE.1,
-                "end_x": 424, "end_y": APPROVE.1,
+                "start_x": APPROVE_START.0, "start_y": APPROVE_START.1,
+                "end_x": 424, "end_y": APPROVE_START.1,
                 "duration_ms": 650, "steps": 24
             }),
         )
@@ -345,7 +345,7 @@ pub enum Shown {
     Result(String),
 }
 
-/// The review screen is drawn: a copper slider above the charcoal Reject button.
+/// The review screen is drawn: a copper slider thumb above a full-width charcoal Reject button.
 pub fn shows_review(png: &[u8]) -> bool {
     let Some(image) = image::load_from_memory(png)
         .ok()
@@ -353,11 +353,13 @@ pub fn shows_review(png: &[u8]) -> bool {
     else {
         return false;
     };
-    matches!((image.get_pixel_checked(40, 668), image.get_pixel_checked(60, 742)),
-        (Some(slider), Some(reject)) if is_accent(slider.0) && is_grey(reject.0))
+    let at = |(x, y)| image.get_pixel_checked(x, y).map(|pixel| pixel.0);
+    matches!((at((40, 668)), at(LEFT_BUTTON), at(RIGHT_BUTTON)),
+        (Some(thumb), Some(left), Some(right))
+            if is_accent(thumb) && is_grey(left) && is_grey(right))
 }
 
-/// A result screen is drawn: one yellow Done button across the screen.
+/// A result screen is drawn: one full-width copper Done button at the bottom.
 pub fn shows_result(png: &[u8]) -> bool {
     matches!(button_colours(png), Some((left, right)) if is_accent(left) && is_accent(right))
 }
@@ -371,12 +373,15 @@ fn button_colours(png: &[u8]) -> Option<([u8; 3], [u8; 3])> {
 
 /// The copper of the approval thumb and primary buttons.
 fn is_accent([red, green, blue]: [u8; 3]) -> bool {
-    let copper = |r, g, b| r > 180 && (120..=190).contains(&g) && (80..=150).contains(&b);
-    // Some hosted SDK screenshot exports use BGR byte order.
-    copper(red, green, blue) || copper(blue, green, red)
+    let dark_copper = red > 180 && (120..=190).contains(&green) && (80..=150).contains(&blue);
+    let light_copper =
+        (140..=160).contains(&red) && (76..=96).contains(&green) && (41..=61).contains(&blue);
+    dark_copper || light_copper
 }
 
-/// The charcoal secondary button.
+/// The secondary button: charcoal in dark mode and warm grey in light mode.
 fn is_grey([red, green, blue]: [u8; 3]) -> bool {
-    (40..=100).contains(&red) && red.abs_diff(green) < 12 && red.abs_diff(blue) < 12
+    ((40..=100).contains(&red) || (215..=240).contains(&red))
+        && red.abs_diff(green) < 12
+        && red.abs_diff(blue) < 12
 }

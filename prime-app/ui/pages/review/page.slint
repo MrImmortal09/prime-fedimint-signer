@@ -39,7 +39,7 @@ export component ReviewPagePage inherits Rectangle {
         SlideToConfirm {
             width: 100%; height: 72px; label: "Slide"; hint: "to approve"; confirmed-label: "Authorizing…";
             size: ControlSize.md; thumb-label-color: Theme.palette-background;
-            activated => { self.confirmed = false; Callbacks.approve(); }
+            activated => { Callbacks.approve(); self.confirmed = false; }
         }
         Button { text: "Reject request"; variant: ButtonVariant.secondary; full-width: true; clicked => { Callbacks.reject(); } }
     }

@@ -483,7 +483,9 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let command = args.next().unwrap_or_default();
     let mut shots = PathBuf::from("target/sim-e2e");
-    let mut drive = PathBuf::from("foundation-passport-drive");
+    let mut drive = std::env::var_os("FPS_SIM_DRIVE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("foundation-passport-drive"));
     let mut pin = "123456".to_owned();
     while let Some(arg) = args.next() {
         match (arg.as_str(), args.next()) {
