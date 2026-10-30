@@ -11,6 +11,8 @@ struct PrimeExchangeView: View {
     @State private var progress = 0.0
     @State private var problem: String?
     @State private var scanner = AnswerScanner()
+    /// The camera keeps reporting codes while the screen closes; the answer is taken once.
+    @State private var done = false
     private let ticker = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -67,11 +69,14 @@ struct PrimeExchangeView: View {
     }
 
     private func take(_ code: String) {
+        guard !done else { return }
         switch scanner.receive(code: code) {
         case .partial(let progress):
             self.progress = progress
             problem = nil
         case .complete(let answer):
+            done = true
+            progress = 1
             bridge.answer(answer)
         case .rejected(let reason):
             problem = reason

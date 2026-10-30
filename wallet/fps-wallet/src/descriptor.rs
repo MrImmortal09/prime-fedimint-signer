@@ -7,9 +7,13 @@ use bitcoin::hashes::Hash as _;
 use fedimint_core::Amount;
 use fedimint_core::config::ClientConfig;
 use fedimint_core::encoding::Encodable as _;
-use fedimint_core::module::AmountUnit;
+use fedimint_core::module::registry::ModuleDecoderRegistry;
+use fedimint_core::module::{AmountUnit, ModuleCommon as _};
+use fedimint_lnv2_common::LightningModuleTypes;
 use fedimint_lnv2_common::config::LightningClientConfig;
+use fedimint_mintv2_common::MintModuleTypes;
 use fedimint_mintv2_common::config::MintClientConfig;
+use fedimint_walletv2_common::WalletModuleTypes;
 use fedimint_walletv2_common::config::WalletClientConfig;
 use fps_protocol::{
     DenominationKey, FederationDescriptor, FixedBytes, LightningParams, MintParams, ModuleInfo,
@@ -19,6 +23,7 @@ use fps_protocol::{
 /// The descriptor of the federation `config` describes. Fails if a module's config does not
 /// decode, or the mint is not in bitcoin.
 pub fn federation_descriptor(config: &ClientConfig) -> Result<FederationDescriptor, String> {
+    let config = decoded(config.clone())?;
     let mut descriptor = FederationDescriptor {
         federation: FixedBytes(config.calculate_federation_id().0.to_byte_array()),
         api_endpoints: config.global.api_endpoints.consensus_encode_to_vec().into(),
@@ -95,6 +100,27 @@ pub fn federation_descriptor(config: &ClientConfig) -> Result<FederationDescript
     }
 
     Ok(descriptor)
+}
+
+/// `config` with the module parts this crate reads decoded.
+///
+/// A config downloaded from the federation keeps each module's part as raw bytes until a decoder
+/// for its kind runs. The client does that when it joins, and pairing with Prime comes first, so
+/// the descriptor decodes the kinds it reads itself. Parts of other kinds stay raw.
+pub fn decoded(config: ClientConfig) -> Result<ClientConfig, String> {
+    let decoders =
+        ModuleDecoderRegistry::new(config.modules.iter().filter_map(|(instance, module)| {
+            let decoder = match module.kind.as_str() {
+                "mintv2" => MintModuleTypes::decoder(),
+                "lnv2" => LightningModuleTypes::decoder(),
+                "walletv2" => WalletModuleTypes::decoder(),
+                _ => return None,
+            };
+            Some((*instance, module.kind.clone(), decoder))
+        }));
+    config
+        .redecode_raw(&decoders)
+        .map_err(|error| format!("{error:#}"))
 }
 
 fn network(network: bitcoin::Network) -> Network {
