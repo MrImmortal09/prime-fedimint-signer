@@ -43,6 +43,7 @@ struct Options {
     dir: PathBuf,
     mint: String,
     info: bool,
+    invoice: Option<u64>,
 }
 
 fn options() -> Result<Options, String> {
@@ -51,6 +52,7 @@ fn options() -> Result<Options, String> {
         dir: std::env::temp_dir().join("fps-cashu-cli"),
         mint: "https://testnut.cashu.space".to_owned(),
         info: false,
+        invoice: None,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -58,9 +60,14 @@ fn options() -> Result<Options, String> {
             "--dir" => options.dir = args.next().ok_or("--dir needs a directory")?.into(),
             "--mint" => options.mint = args.next().ok_or("--mint needs a URL")?,
             "--info" => options.info = true,
+            "--invoice" => {
+                let sats = args.next().ok_or("--invoice needs an amount in sats")?;
+                options.invoice = Some(sats.parse().map_err(|_| format!("not an amount: {sats}"))?);
+            }
             "-h" | "--help" => {
                 return Err(
-                    "usage: cashu_cli [address] [--dir DIR] [--mint URL] [--info]".to_owned(),
+                    "usage: cashu_cli [address] [--dir DIR] [--mint URL] [--info] [--invoice SATS]"
+                        .to_owned(),
                 );
             }
             other if other.starts_with('-') => return Err(format!("unknown option {other}")),
@@ -124,6 +131,11 @@ async fn run(options: Options) -> Result<(), String> {
     fps_cashu::cashu_install_tls();
     if options.info {
         return info(&options.address).await;
+    }
+    if let Some(sats) = options.invoice {
+        // An invoice to paste into the app's Pay field: the test mint "pays" it.
+        println!("{}", invoice(sats)?);
+        return Ok(());
     }
     let text = |error: CashuError| error.to_string();
     let dir = options.dir.to_string_lossy().into_owned();
