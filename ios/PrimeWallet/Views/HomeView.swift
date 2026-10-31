@@ -129,8 +129,7 @@ struct PendingSendRow: View {
                 Button("Take back") {
                     Task {
                         if let amount = await model.run("Taking the ecash back", { try await $0.reclaim(id: send.id) }) {
-                            model.error = nil
-                            _ = amount
+                            model.notice = Amounts.sats(msat: amount) + " is back in your balance, less the federation's fee."
                         }
                     }
                 }

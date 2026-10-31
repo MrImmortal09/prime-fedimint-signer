@@ -2,7 +2,7 @@
 
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bitcoin::Address;
 use bitcoin::address::NetworkUnchecked;
@@ -26,12 +26,14 @@ use fedimint_lnv2_client::{LightningClientInit, LightningClientModule};
 use fedimint_lnv2_common::Bolt11InvoiceDescription;
 use fedimint_mintv2_client::{
     ECash, FinalReceiveOperationState, IssuedExternalNote, MintClientInitWithKeys, MintClientModule,
+    MintOperationMeta, ReceiveECashError,
 };
 use fedimint_walletv2_client::{WalletClientInit, WalletClientModule};
-use fps_protocol::{Delivery, FixedBytes, KEY_SCHEME, ViewMaterial};
+use fps_protocol::{Delivery, FixedBytes, KEY_SCHEME, RejectCode, ViewMaterial};
 use fps_signer_core::ViewKeys;
 use fps_wallet::DeviceKeys;
-use fps_wallet::device::Device;
+use fps_wallet::device::{Device, DeviceError};
+use fps_wallet::send::SendError;
 use lightning_invoice::Bolt11Invoice;
 use serde_json::Value;
 use tokio::sync::RwLock;
@@ -44,6 +46,8 @@ use crate::{PrimeLink, WalletError};
 const INVOICE_EXPIRY_SECS: u32 = 60 * 60;
 /// How many operations `activity` lists.
 const ACTIVITY_LIMIT: usize = 50;
+/// How long a receive or reclaim waits for its change notes, so the balance it leaves is current.
+const SETTLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// A federation the wallet belongs to.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -229,27 +233,64 @@ impl Wallet {
             .ok_or(WalletError::NotJoined)
     }
 
-    /// Redeems a token the wallet holds itself.
-    async fn redeem(&self, joined: &Joined, token: &str) -> Result<u64, WalletError> {
+    /// Redeems a token the wallet holds itself. With `resume`, a token an earlier call already
+    /// submitted is followed to its end instead of refused, as when a take-back was interrupted.
+    async fn redeem(&self, joined: &Joined, token: &str, resume: bool) -> Result<u64, WalletError> {
         let ecash: ECash = base32::decode_prefixed(FEDIMINT_PREFIX, token.trim())
             .map_err(|error| WalletError::invalid(format!("not an ecash token: {error}")))?;
         let amount = ecash.amount();
         let mint = joined.mint()?;
-        let operation = mint
-            .receive(ecash, Value::Null)
-            .await
-            .map_err(WalletError::failed)?;
+        // `receive` names its operation after the token.
+        let operation = match mint.receive(ecash.clone(), Value::Null).await {
+            Ok(operation) => operation,
+            Err(ReceiveECashError::AlreadyReceived) if resume => {
+                OperationId::from_encodable(&ecash)
+            }
+            Err(error) => return Err(WalletError::failed(error)),
+        };
         match mint
             .await_final_receive_operation_state(operation)
             .await
             .map_err(WalletError::failed)?
         {
-            FinalReceiveOperationState::Success => Ok(amount.msats),
+            FinalReceiveOperationState::Success => {
+                settle(joined, operation).await;
+                Ok(amount.msats)
+            }
             other => Err(WalletError::failed(format!(
                 "the federation did not accept the token: {other:?}"
             ))),
         }
     }
+}
+
+/// Waits until the change notes of `operation`, a receive or a reclaim, are in the wallet. The
+/// federation accepting the transaction ends the operation, but the balance only counts notes once
+/// their signatures arrive, so without this the money looks missing until the next refresh.
+async fn settle(joined: &Joined, operation: OperationId) {
+    let Some(entry) = joined.client.operation_log().get_operation(operation).await else {
+        return;
+    };
+    let change = match entry.try_meta::<MintOperationMeta>() {
+        Ok(MintOperationMeta::Receive {
+            change_outpoint_range,
+            ..
+        }) => change_outpoint_range,
+        Ok(MintOperationMeta::ClaimExternal {
+            change_outpoint_range,
+            ..
+        }) => change_outpoint_range,
+        _ => return,
+    };
+    // The money is already the wallet's; only what the balance shows waits, so a slow or failed
+    // issuance does not fail the call.
+    let _ = tokio::time::timeout(
+        SETTLE_TIMEOUT,
+        joined
+            .client
+            .await_primary_bitcoin_module_outputs(operation, change.into_iter().collect()),
+    )
+    .await;
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -377,7 +418,7 @@ impl Wallet {
     /// Redeems an ecash token into the wallet, without Prime. Returns the amount received.
     pub async fn receive_ecash(&self, token: String) -> Result<u64, WalletError> {
         let joined = self.joined().await?;
-        self.redeem(&joined, &token).await
+        self.redeem(&joined, &token, false).await
     }
 
     /// An invoice for `amount_msat` that pays into the wallet without Prime. `gateway` picks the
@@ -569,24 +610,33 @@ impl Wallet {
     /// staged but never released are released to the phone first. Returns the amount.
     pub async fn reclaim(&self, id: String) -> Result<u64, WalletError> {
         let joined = self.joined().await?;
-        let send = self
+        let mut send = self
             .store
             .send(&id)?
             .ok_or_else(|| WalletError::invalid("no such send"))?;
         let notes = decode_notes(&send)?;
-        let token = match (&send.token, send.released) {
-            (Some(token), _) => Some(token.clone()),
-            (None, true) => None,
-            (None, false) => {
-                joined
-                    .keys
-                    .release(&notes, Delivery::ReturnToPhone, false)
-                    .await?
-                    .token
+        if !send.released {
+            match joined
+                .keys
+                .release(&notes, Delivery::ReturnToPhone, false)
+                .await
+            {
+                Ok(released) => send.token = released.token,
+                // Prime released them already and its answer never reached the phone, as when
+                // the answer code was not scanned. Prime refuses a second release; a reclaim it
+                // signs takes them back.
+                Err(SendError::Device(DeviceError::Rejected {
+                    code: RejectCode::AlreadyReleased,
+                    ..
+                })) => send.token = None,
+                Err(error) => return Err(error.into()),
             }
-        };
-        let amount = match token {
-            Some(token) => self.redeem(&joined, &token).await,
+            send.released = true;
+            // Kept before redeeming, so a retry needs neither Prime nor a second release.
+            self.store.put_send(send.clone())?;
+        }
+        let amount = match &send.token {
+            Some(token) => self.redeem(&joined, token, true).await?,
             None => {
                 let mint = joined.mint()?;
                 let operation = joined.keys.reclaim(&mint, &notes).await?;
@@ -595,13 +645,16 @@ impl Wallet {
                     .await
                     .map_err(WalletError::failed)?
                 {
-                    FinalReceiveOperationState::Success => Ok(send.amount_msat),
-                    other => Err(WalletError::failed(format!(
-                        "the federation refused the reclaim, so the receiver probably redeemed it: {other:?}"
-                    ))),
+                    FinalReceiveOperationState::Success => settle(&joined, operation).await,
+                    other => {
+                        return Err(WalletError::failed(format!(
+                            "the federation refused the reclaim, so the receiver probably redeemed it: {other:?}"
+                        )));
+                    }
                 }
+                send.amount_msat
             }
-        }?;
+        };
         self.store.remove_send(&id)?;
         Ok(amount)
     }
