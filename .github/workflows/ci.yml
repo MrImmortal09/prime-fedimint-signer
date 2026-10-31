@@ -113,7 +113,9 @@ jobs:
           # `cargo tree` would leave an empty listing and pass.
           set -o pipefail
           features() {
-            cargo tree --locked -e features,no-dev --target all --prefix none "$@" \
+            # --color never: CI turns colours on, and the codes around "(*)" kept the sed below
+            # from dropping the marker, so a repeated feature looked like an added one.
+            cargo tree --locked --color never -e features,no-dev --target all --prefix none "$@" \
               | grep -E '^(bitcoin|secp256k1)[^ ]* feature "' \
               | sed 's/ (\*)$//' | LC_ALL=C sort -u
           }
