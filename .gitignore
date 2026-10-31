@@ -17,5 +17,6 @@
 
 # iOS: Xcode build output, the packaged Rust core (scripts/ios-core.sh), per-user Xcode state
 /ios/build/
+/ios/build-sim*/
 /ios/FpsMobile.xcframework/
 xcuserdata/

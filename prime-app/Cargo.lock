@@ -1501,6 +1501,7 @@ name = "fedimint-signer"
 version = "0.1.0"
 dependencies = [
  "foundation-themes",
+ "fps-cashu-signer",
  "fps-policy",
  "fps-protocol",
  "fps-signer",
@@ -1735,6 +1736,30 @@ dependencies = [
  "minicbor",
  "phf 0.11.3",
  "rand_xoshiro",
+]
+
+[[package]]
+name = "fps-cashu-core"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "fps-protocol",
+ "fps-signer-core",
+ "zeroize",
+]
+
+[[package]]
+name = "fps-cashu-signer"
+version = "0.1.0"
+dependencies = [
+ "ciborium",
+ "fps-cashu-core",
+ "fps-policy",
+ "fps-protocol",
+ "fps-signer",
+ "fps-signer-core",
+ "serde",
+ "zeroize",
 ]
 
 [[package]]

@@ -1,9 +1,10 @@
 //! Cashu request and response bodies: the second backend, beside Fedimint.
 //!
-//! These types are reached through `Request::Cashu` and `Response::Cashu`, which the next change
-//! adds. Prime signs Cashu spends the way it signs Fedimint spends: the phone builds every
-//! operation and talks to the mint, and Prime checks, shows and signs. The design is
-//! `docs/plan/12_CASHU.md`; the key scheme, `fps-cashu-v1`, is `docs/KEY_SCHEME_CASHU.md`.
+//! These types are reached through `Request::Cashu` and `Response::Cashu`, the last variants of
+//! `Request` and `Response`; `crates/cashu-signer` serves them on Prime. Prime signs Cashu spends
+//! the way it signs Fedimint spends: the phone builds every operation and talks to the mint, and
+//! Prime checks, shows and signs. The design is `docs/plan/12_CASHU.md`; the key scheme,
+//! `fps-cashu-v1`, is `docs/KEY_SCHEME_CASHU.md`.
 //!
 //! Amounts are in the mint's unit, which this version requires to be `sat`. Proof secrets and the
 //! quote id are carried verbatim and never re-serialised: the mint signed `hash_to_curve` of the

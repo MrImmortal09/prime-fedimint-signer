@@ -8,7 +8,7 @@ struct JoinView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Label("PRIME WALLET", systemImage: "circle.hexagongrid")
+                    Label("ECASH WALLET", systemImage: "circle.hexagongrid")
                         .font(.caption.weight(.semibold)).foregroundStyle(WalletStyle.copper)
                     Text("Connect a federation")
                         .font(.title.bold())
@@ -32,8 +32,13 @@ struct JoinView: View {
                 }.font(.subheadline).foregroundStyle(WalletStyle.muted)
                 Text("Your federation holds the backing funds. Prime protects your spending keys.")
                     .font(.footnote).foregroundStyle(WalletStyle.muted)
+#if canImport(fps_cashuFFI)
+                Text("Fedimint · Cashu available")
+                    .font(.caption).foregroundStyle(WalletStyle.muted)
+#else
                 Text("Fedimint · Cashu not yet supported")
                     .font(.caption).foregroundStyle(WalletStyle.muted)
+#endif
             }
             .padding(20).frame(maxWidth: 600)
             .frame(maxWidth: .infinity)

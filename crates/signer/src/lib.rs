@@ -83,6 +83,8 @@ pub enum ApprovalKind {
     ExportViewMaterial,
     SignTransaction,
     ReleaseNotes,
+    /// A Cashu request, which `fps-cashu-signer` asks for. This service never makes one.
+    Cashu,
 }
 
 /// The result of handling one message.
@@ -544,6 +546,12 @@ impl<S: Storage, P: Platform> Signer<S, P> {
                     action: Action::Release(plan.into()),
                 }))
             }
+            // Cashu is served beside this service, by `fps-cashu-signer`'s `Device`, which never
+            // passes it here. On its own, this service has no Cashu backend.
+            Request::Cashu(_) => Err(error(
+                RejectCode::Unsupported,
+                "this device has no Cashu service",
+            )),
         }
     }
 

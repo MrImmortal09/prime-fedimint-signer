@@ -98,3 +98,46 @@ jobs:
           git diff --exit-code crates/cashu-core/tests/vectors
       - name: Device code cross-checked against the cashu crate
         run: cargo test --release --locked --manifest-path devtools-cashu/Cargo.toml
+
+  # Cargo unifies features across the app, so a feature a Cashu crate switched on for bitcoin or
+  # secp256k1 would switch on for the Fedimint signer too (on the device, `rand-std` alone would
+  # change its signing path). And getrandom has no backend on the device but the SDK's own.
+  curve-features:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: The Cashu signer adds no bitcoin or secp256k1 feature to the Fedimint signer's
+        run: |
+          # A step without `shell:` runs under `bash -e` alone: without pipefail a failing
+          # `cargo tree` would leave an empty listing and pass.
+          set -o pipefail
+          features() {
+            # --color never: CI turns colours on, and the codes around "(*)" kept the sed below
+            # from dropping the marker, so a repeated feature looked like an added one.
+            cargo tree --locked --color never -e features,no-dev --target all --prefix none "$@" \
+              | grep -E '^(bitcoin|secp256k1)[^ ]* feature "' \
+              | sed 's/ (\*)$//' | LC_ALL=C sort -u
+          }
+          features -p fps-signer > "$RUNNER_TEMP/fedimint.txt"
+          features -p fps-signer -p fps-cashu-signer > "$RUNNER_TEMP/both.txt"
+          # Both listings are real ones: the Fedimint signer uses bitcoin with "std".
+          grep -qx 'bitcoin feature "std"' "$RUNNER_TEMP/fedimint.txt"
+          grep -qx 'bitcoin feature "std"' "$RUNNER_TEMP/both.txt"
+          cat "$RUNNER_TEMP/both.txt"
+          added=$(LC_ALL=C comm -13 "$RUNNER_TEMP/fedimint.txt" "$RUNNER_TEMP/both.txt")
+          if [ -n "$added" ]; then
+            echo "fps-cashu-signer switches on features fps-signer does not use:"
+            echo "$added"
+            exit 1
+          fi
+      - name: No getrandom in the Cashu signer's graph
+        run: |
+          if found=$(cargo tree --locked --target all -i getrandom -p fps-cashu-signer 2>&1); then
+            echo "getrandom is in fps-cashu-signer's graph:"
+            echo "$found"
+            exit 1
+          elif ! grep -q "did not match any packages" <<<"$found"; then
+            echo "$found"
+            exit 1
+          fi

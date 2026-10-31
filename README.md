@@ -41,11 +41,12 @@ followed by a separate test commit.
 | `wallet/` | `fps-wallet`: the phone side, a watch-only fedimint client with Prime as its signer |
 | `wallet/fps-mobile/` | `fps-mobile`: the phone wallet's core, exported with UniFFI; the generated Kotlin bindings are in `bindings/kotlin/` |
 | `ios/` | Prime Wallet, the iOS app: SwiftUI on the core's Swift bindings, reaching Prime over animated QR codes |
+| `cashu/` | The phone's Cashu wallet, `fps-cashu`, in its own cargo workspace, and `fps-core`, the iOS library with both wallets |
 | `patches/fedimint/` | The patch series that gives fedimint's client a signer boundary ([`docs/FEDIMINT_PATCHES.md`](docs/FEDIMINT_PATCHES.md)) |
 | `devtools/` | Host-only: golden vectors and cross-checks against the real fedimint crates |
 | `spikes/xous-crypto/` | Phase 0 spike: the signer's crypto and encoding dependencies, built for the device |
 | `tools/sim-e2e/` | The end-to-end driver for the app in the simulator |
-| `scripts/` | `sdk-shell.sh` runs a command in the Foundation SDK shell; `device-build.sh` builds crates and `app-device-build.sh` the app for Passport Prime; `sim-e2e.sh` and `sim-wallet-e2e.sh` run the simulator checks; `fedimint-checkout.sh` prepares the patched fedimint; `ios-core.sh` and `android-core.sh` build the phone wallet's core |
+| `scripts/` | `sdk-shell.sh` runs a command in the Foundation SDK shell; `device-build.sh` builds crates and `app-device-build.sh` the app for Passport Prime; `sim-e2e.sh` and `sim-wallet-e2e.sh` run the simulator checks; `fedimint-checkout.sh` prepares the patched fedimint; `ios-core.sh` and `android-core.sh` build the phone wallet's core, and `ios-core-cashu.sh` the iOS core with Cashu; `cashu-subgraph-check.sh` compares fps-mobile's dependencies in `wallet/` and `cashu/` |
 
 ## Building and testing
 
@@ -102,6 +103,26 @@ xcodebuild -project PrimeWallet.xcodeproj -scheme PrimeWallet -destination 'id=<
   -allowProvisioningUpdates -derivedDataPath build build
 xcrun devicectl device install app --device <device UDID> build/Build/Products/Debug-iphoneos/PrimeWallet.app
 ```
+
+### Cashu
+
+`cashu/` holds the phone's Cashu wallet, `fps-cashu`, in a cargo workspace of its own beside
+`wallet/` ([`docs/plan/12_CASHU.md`](docs/plan/12_CASHU.md)). Its tests do not build fedimint, but
+cargo loads fedimint's path dependencies there, so run `scripts/fedimint-checkout.sh` first. The
+live test and the example use the public test mint https://testnut.cashu.space; the example
+reaches the Prime app in the KeyOS simulator, where someone approves each review:
+
+```sh
+cd cashu
+cargo test -p fps-cashu
+cargo test -p fps-cashu --test live -- --ignored
+cargo run -p fps-cashu --example cashu_cli -- 127.0.0.1
+```
+
+`scripts/ios-core-cashu.sh` builds the iOS core with Cashu: fps-mobile and fps-cashu in one library,
+for iPhones and the iOS Simulator, into the same `ios/FpsMobile.xcframework`, plus the Swift
+bindings `ios/PrimeWallet/Generated/fps_cashu.swift`. The app built with it has a Cashu button; built
+with a core from `scripts/ios-core.sh`, it is Fedimint only.
 
 ### The KeyOS app
 

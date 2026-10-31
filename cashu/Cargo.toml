@@ -1,0 +1,26 @@
+# The phone's Cashu wallet, beside `wallet/` and never inside it: CDK cannot share
+# `wallet/Cargo.lock` without bumping four crates fedimint compiles, and `cdk-sqlite` cannot
+# resolve there at all. See docs/plan/12_CASHU.md, "The phone".
+#
+# `fps-core` is the umbrella the iOS app links: fps-mobile, unchanged and by path, plus fps-cashu.
+# It is not a default member, so `cargo test` here never builds fedimint; but every cargo command
+# here loads its path dependencies, so fedimint must be checked out (`scripts/fedimint-checkout.sh`).
+# Cargo.lock was seeded from `wallet/Cargo.lock` with fps-core already present, so fps-mobile
+# resolves here as it does in `wallet/`; `scripts/cashu-subgraph-check.sh` holds it there.
+#
+# Pass `-p fps-cashu` to fmt, clippy and test: `cargo fmt --all` here would reformat `wallet/` and
+# the fedimint checkout.
+[workspace]
+resolver = "2"
+members = ["fps-cashu", "fps-core"]
+default-members = ["fps-cashu"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Curve arithmetic, hashing and the test mint's SQLite are slow unoptimised; keep our own crates
+# debuggable.
+[profile.dev.package."*"]
+opt-level = 2

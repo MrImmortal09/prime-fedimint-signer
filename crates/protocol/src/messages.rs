@@ -7,6 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::bytes::{ByteBuf, FixedBytes};
+use crate::cashu::{CashuRequest, CashuResponse};
 
 /// A 16-byte random id chosen by the phone. Responses echo it.
 pub type RequestId = FixedBytes<16>;
@@ -43,6 +44,10 @@ pub enum Request {
     GetStatus,
     /// Abandon a request that is waiting for approval.
     Cancel { request: RequestId },
+    /// A request for the Cashu backend. A Prime app older than the Cashu backend cannot decode it
+    /// and answers `Rejected(Malformed)`; one without the Cashu service answers
+    /// `Rejected(Unsupported)`.
+    Cashu(CashuRequest),
 }
 
 /// A mint v2 note position: its denomination exponent and its tweak.
@@ -229,6 +234,8 @@ pub enum Response {
     Pending,
     Cancelled,
     Rejected(Rejection),
+    /// The answer to a `Request::Cashu`; nothing else gets one.
+    Cashu(CashuResponse),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

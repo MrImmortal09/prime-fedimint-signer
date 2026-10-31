@@ -10,7 +10,11 @@ struct HomeView: View {
                 HStack {
                     Label("FEDIMINT", systemImage: "circle.hexagongrid").font(.caption.weight(.semibold))
                     Spacer()
+#if canImport(fps_cashuFFI)
+                    Text("Cashu · Available").font(.caption).foregroundStyle(WalletStyle.muted)
+#else
                     Text("Cashu · Unavailable").font(.caption).foregroundStyle(WalletStyle.muted)
+#endif
                 }.foregroundStyle(WalletStyle.copper)
                 WalletPanel {
                     Text("Available balance").font(.subheadline).foregroundStyle(WalletStyle.muted)
@@ -55,7 +59,7 @@ struct HomeView: View {
                 Text("Ecash is backed by your federation. Learn about trust and privacy in Settings.")
                     .font(.footnote).foregroundStyle(WalletStyle.muted)
             }.padding(20).frame(maxWidth: 650)
-        }.background(WalletStyle.background).navigationTitle("Prime Wallet").navigationBarTitleDisplayMode(.inline)
+        }.background(WalletStyle.background).navigationTitle("Ecash Wallet").navigationBarTitleDisplayMode(.inline)
             .refreshable { await model.refresh() }
     }
     private var federationName: String {

@@ -42,6 +42,7 @@ with data is a one-entry map from the variant name to its fields.
 | `GetResult { request }` | never | the stored response of `request`, `Pending`, or `Rejected(NotFound)` |
 | `GetStatus` | never | `Status` |
 | `Cancel { request }` | never | `Cancelled`, stored as the cancelled request's answer |
+| `Cashu(CashuRequest)` | see [Cashu](#cashu) | `Cashu(CashuResponse)` |
 
 Only one request waits for approval at a time; another one that needs approval gets
 `Rejected(Busy)`. Final answers (signatures, releases, imports, user rejections, cancellations) are
@@ -104,6 +105,7 @@ durably before the answer leaves it.
 | `Pending` | The request is waiting for the user |
 | `Cancelled` | |
 | `Rejected` | `code` and `message` |
+| `Cashu` | The answer to a `Cashu` request; nothing else gets one |
 
 ### Gateway authorisation
 
@@ -122,18 +124,56 @@ contract, never a hash the phone supplies.
 
 ## Cashu
 
-The bodies of the second backend, in `crates/protocol/src/cashu.rs`. They are reached through
-`Request::Cashu(CashuRequest)` and `Response::Cashu(CashuResponse)`, which the next change appends;
-until then no envelope carries them, and nothing above changes. Prime checks, shows and signs
-Cashu spends as it does Fedimint ones: the phone builds every operation and talks to the mint. The
-design is [`plan/12_CASHU.md`](plan/12_CASHU.md), the key scheme `fps-cashu-v1`
-([`KEY_SCHEME_CASHU.md`](KEY_SCHEME_CASHU.md)), and `crates/cashu-core` implements the checks.
+The second backend. Its messages travel in the same envelopes, version 1, as the last variants of
+the two enums: `Request::Cashu(CashuRequest)` and `Response::Cashu(CashuResponse)`, with the bodies
+in `crates/protocol/src/cashu.rs`. Enums are tagged by name, so every Fedimint message keeps its
+bytes. Prime checks, shows and signs Cashu spends as it does Fedimint ones: the phone builds every
+operation and talks to the mint. The design is [`plan/12_CASHU.md`](plan/12_CASHU.md), the key
+scheme `fps-cashu-v1` ([`KEY_SCHEME_CASHU.md`](KEY_SCHEME_CASHU.md)); `crates/cashu-core`
+implements the checks and `crates/cashu-signer` the service.
+
+```
+{"v": 1, "id": h'…', "body": {"Cashu": "Info"}}
+{"v": 1, "id": h'…', "body": {"Cashu": {"Sign": {"mint": h'…', "epoch": 0, "inputs": […], …}}}}
+{"v": 1, "id": h'…', "body": {"Cashu": {"Signed": {"message_hash": h'…', "signature": h'…'}}}}
+```
 
 | Request | Approval | Answer |
 |---|---|---|
 | `Info` | never | `Info(CashuInfo)`: the scheme name and the imported mints |
-| `AddMint(CashuMintDescriptor)` | "Cashu: add mint", or "Cashu: update mint keys" for a known mint | `MintAdded(CashuLockMaterial)`, never stored for replay |
-| `Sign(CashuSignRequest)` | "Cashu: send ecash", "Cashu: combine ecash", "Cashu: move to a new key" or "Cashu: pay Lightning invoice" | `Signed(CashuSigned)` |
+| `AddMint(CashuMintDescriptor)` | yes, every time: "Cashu: add mint", or "Cashu: update mint keys" for a known mint | `MintAdded(CashuLockMaterial)`, never stored for replay |
+| `Sign(CashuSignRequest)` | yes: "Cashu: send ecash", "Cashu: combine ecash", "Cashu: move to a new key" or "Cashu: pay Lightning invoice" | `Signed(CashuSigned)` |
+
+How Prime serves them beside Fedimint:
+
+- **One review at a time, across both backends.** `AddMint` and `Sign` get `Rejected(Busy)` while
+  any review waits, Fedimint's or Cashu's, unless their id has a stored answer; `Info` is always
+  answered. While a Cashu review waits, `ImportFederation`, `ExportViewMaterial`,
+  `SignTransaction` and `ReleaseNotes` get exactly what they get while a Fedimint review waits:
+  their stored answer, or `Busy` naming the waiting request. That holds for a release of prepared
+  notes too, which an idle Prime would release without asking.
+- **Stored answers.** Cashu keeps its own ring of the last 32 final answers (`Signed`, and the
+  `UserRejected` and `Cancelled` refusals) in its own file. A Cashu request sent again under the
+  same id gets its stored answer, never a second signature. `MintAdded` carries the view key and
+  is never stored: the same `AddMint` again asks again, as `ExportViewMaterial` does.
+- **`GetResult` and `Cancel`** look in the Fedimint state first and, only if it has nothing for
+  that request, in Cashu's. So they work on Cashu ids too: the stored answer, `Pending` while the
+  request waits, and `Cancel` abandons a waiting Cashu request and stores `Cancelled` as its
+  answer. If neither backend has the request, the answer is the usual `Rejected(NotFound)`.
+- **`GetInfo` and `GetStatus` describe Fedimint only.** While a Cashu review waits, `busy` stays
+  false and `pending` empty; Cashu's `Info` lists the mints.
+- **Policy.** The PIN threshold, the per-request limit and the daily limit apply to a Cashu spend
+  as to a Fedimint one, over its outflow: the leaving outputs plus the mint's fee for a send, the
+  fee alone for a combine or a move to a new key, and every input of a melt, since Prime cannot
+  see what the quote pays. The daily count a Cashu spend is held to is Cashu's own plus Fedimint's,
+  so the two together stay under the limit. A melt's fee reserve is held to the routing fee limit
+  that bounds a Lightning gateway's fee.
+- **A Prime without Cashu.** A Prime app older than the Cashu backend cannot decode
+  `Request::Cashu` and answers `Rejected(Malformed)` under the request id ("unknown variant
+  `Cashu`"), which the phone reports as "this Prime app has no Cashu". A Prime app built with this
+  protocol but without the Cashu service answers `Rejected(Unsupported)`. A Prime whose Cashu state
+  cannot be read answers `Info` with no mints and `AddMint` and `Sign` with `Rejected(Internal)`,
+  saying why; Fedimint works as before.
 
 An `AddMint` for a known mint only adds keysets and updates their `active` flags. A keyset already
 pinned must come with the same keys and fee, one the descriptor no longer lists stays pinned as
@@ -157,7 +197,25 @@ each input at the amount its DLEQ proof's key is pinned for. Anything else is `I
 | `CashuSigned` | `message_hash` (32), `signature` (64): BIP-340 over the NUT-11 `SIG_ALL` message Prime built, for the first input's witness |
 
 The same strictness applies: unknown fields and variants are errors, and byte strings declared
-with a length must have it. Cashu answers use only the rejection codes above.
+with a length must have it. Cashu answers use only the rejection codes above:
+
+| Code | For a Cashu request |
+|---|---|
+| `Malformed` | The message does not decode; from a Prime app older than Cashu, every Cashu request |
+| `Unsupported` | A unit other than `sat`; a Prime app without the Cashu service |
+| `UnknownFederation` | The mint is not added on the device |
+| `InvalidDescriptor` | A mint URL not in canonical form, a keyset id not derived from its keys, an update that changes a pinned keyset, a key under two amounts |
+| `InvalidTransaction` | No inputs, a swap that does not balance, inputs that do not cover a melt, a quote id Prime refuses, a repeated input or blinded message, outputs whose message reads two ways |
+| `ForeignInput` | An input not locked to the wallet's key for the request's epoch |
+| `InvalidNote` | An input whose keyset is not pinned or has no key for its amount, whose `c` is not a point, or whose DLEQ proof fails or, on a melt, is missing |
+| `UnexpectedOutput` | An output that does not open, in a keyset not pinned or not active, with a wrong change hint, or reusing a secret |
+| `InvoiceMismatch` | A melt invoice that does not parse, has no amount, or does not match the quote |
+| `PolicyLimit` | Over the per-request or daily limit, a fee reserve over the routing fee limit, too few blanks to return a melt's change |
+| `TooLarge` | More than 64 inputs or outputs; a new mint beyond the 16 Prime holds, or a mint or update that would take it past 2,048 pinned keys over all its mints |
+| `Busy` | Another review waits, on either backend |
+| `UserRejected` | Rejected on the device |
+| `NotFound` | `GetResult` or `Cancel` for a request neither backend has |
+| `Internal` | The Cashu state cannot be read, so Cashu is off; a write failed; a key derivation failed |
 
 ## Transports
 
