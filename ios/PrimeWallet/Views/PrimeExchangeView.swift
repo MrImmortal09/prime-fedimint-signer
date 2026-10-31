@@ -134,10 +134,24 @@ struct PrimeExchangeView: View {
             self.progress = progress
             problem = nil
         case .complete(let answer):
+            // fps-v1 encodes its fixed header as {v: 1, id: bytes(16), body: ...}.
+            // Reject a stale QR before resuming the wallet continuation. Rust still
+            // performs the authoritative full envelope and request-id validation.
+            let header = Data([0xa3, 0x61, 0x76, 0x01, 0x62, 0x69, 0x64, 0x50])
+            guard exchange.request.starts(with: header), answer.starts(with: header),
+                  exchange.request.count >= 24, answer.count >= 24,
+                  exchange.request.prefix(24) == answer.prefix(24) else {
+                scanner = AnswerScanner()
+                progress = 0
+                problem = "This response is for a different request. On Prime, tap Scan next request and scan the current code from this phone."
+                return
+            }
             done = true
             progress = 1
             bridge.answer(answer)
         case .rejected(let reason):
+            scanner = AnswerScanner()
+            progress = 0
             problem = reason
         }
     }
