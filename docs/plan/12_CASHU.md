@@ -18,7 +18,7 @@ Everything Cashu is added beside the Fedimint code, never through it:
 | The app id, `GetAppSeed`, the `fps-v1` derivation and its frozen vectors | Cashu keys use their own tag prefix, `fps-cashu-v1/`, from the same app seed, with their own vectors file. The vector files' hashes are pinned (`crates/signer-core/tests/pins.rs`) |
 | The golden vectors and the devtools cross-checks | Cashu vectors come from a separate host workspace, `devtools-cashu/`, into `crates/cashu-core/tests/vectors/` |
 | `crates/signer` behaviour | Two additive edits: `ApprovalKind::Cashu` (never matched, never serialised) and the arm `Request::Cashu(_) => Unsupported` that the exhaustive `match` in `dispatch` needs. A new crate's `Device` wraps `Signer` (through `Deref` for every call the app already makes) and routes Cashu requests; with Cashu idle its answers are byte-identical to the bare `Signer`'s, with an empty or a populated Cashu file (a differential test) |
-| The crates `wallet/` uses by path: protocol, signer, signer-core, transport, simdrive | They gain no normal dependencies, and no Cashu crate adds a feature to `bitcoin` or `secp256k1` (on the device, `rand-std` alone would change the Fedimint signing path). Two guards, since a lockfile records dependencies but not features: the CI job `locked` runs `cargo metadata --locked` in the root workspace and in `wallet/`, and from pull request 1 the `host` job diffs the features the Cashu crates turn on for `bitcoin` and `secp256k1` (`cargo tree -e features`) against an allowlist |
+| The crates `wallet/` uses by path: protocol, signer, signer-core, transport, simdrive | They gain no normal dependencies, and no Cashu crate adds a feature to `bitcoin` or `secp256k1` (on the device, `rand-std` alone would change the Fedimint signing path). Two guards, since a lockfile records dependencies but not features: the CI job `locked` runs `cargo metadata --locked` in the root workspace and in `wallet/`, and from pull request 2, where the Cashu crates join the Prime app, a CI job fails on any feature they turn on for `bitcoin` or `secp256k1` (`cargo tree -e features`) that the Fedimint signer alone does not |
 | `wallet/`: members, `Cargo.lock`, the fedimint fixtures, the CI `wallet` job | Untouched. CDK cannot share `wallet/Cargo.lock` without bumping four crates fedimint compiles (parking_lot, lock_api, parking_lot_core, unicode-normalization), and `cdk-sqlite` cannot resolve there at all (a `links = "sqlite3"` clash with fedimint-ldk-node). The phone's Cashu code lives in its own workspace, `cashu/` |
 | fps-mobile, its UniFFI surface, `fps_mobile.swift`, the Kotlin bindings, `scripts/ios-core.sh` | Not edited. Cashu gets its own UniFFI namespace, `fps_cashu`. A new `scripts/ios-core-cashu.sh` builds an umbrella library holding both namespaces and checks that the regenerated `fps_mobile.swift` is byte-identical. All Cashu Swift sits inside `#if canImport(fps_cashuFFI)`, so a core from `ios-core.sh` still builds today's app |
 | The patch series in `patches/fedimint` | No new patches |
@@ -169,9 +169,12 @@ For every spend:
   the quote id for a melt; lowercase hex, decimal amounts) and signs `SHA256(message)` with `k_e`
   (BIP-340, auxiliary randomness from the TRNG). It never signs a digest the phone supplies.
 - **One reading only.** Prime re-parses the output part of the message it built and refuses it
-  unless there is exactly one way to split it into (canonical decimal amount, 66 hex characters
-  starting `02` or `03`) pairs. An honest phone that hits this, which is rare, moves to the next
-  counter. The two known collisions are kept as negative vectors.
+  unless there is exactly one way to split it into (canonical decimal amount, key) pairs whose keys
+  parse as points, the only lists a mint signs: 66 hex characters starting `02` or `03`, or, since
+  Nutshell hashes `B_` as posted, 130 starting `04`, `06` or `07`. Honest outputs hit this for 0.6%
+  of totals below 1,024 sats and about 10% below 2^20 (mostly a 1,024-sat output that is not last),
+  so the phone runs the same check before asking Prime and moves to the next counters. The two
+  known collisions are kept as negative vectors.
 
 Swap: `Σ inputs − fee = Σ outputs`, or refuse. What leaves is the sum of the leaving outputs plus
 the fee.
@@ -202,6 +205,11 @@ each decision and never written to `fps-state.cbor`.
 - That a proof is unspent. DLEQ proves the mint signed it, nothing more.
 - Mint keys are trust-on-first-use from the paired phone, as federation configs are (D12). A v00
   keyset id commits to neither unit nor fee, so for v00 keysets those rest on that trust too.
+  Neither id version ties a key to its amount, and a melt counts each input at the amount its DLEQ
+  proof's key is pinned for, so an update only adds keysets: a pinned keyset keeps its keys and
+  fee, one the mint stops listing stays pinned, and no key may stand for two amounts. The melt
+  limit therefore holds for proofs of keysets pinned while the phone was honest; a keyset first
+  pinned during a compromise is trusted on first use like any other.
 - Receives are phone-only, so a compromised phone can redirect Cashu that is still arriving (D13).
 - Within one epoch the mint can link the wallet's proofs, which share a lock key. Rotating starts a
   new, unlinkable key and costs one swap per old epoch.
@@ -249,7 +257,7 @@ before either wallet opens.
 | Pay an invoice | approve | Melt quote; split first if the proofs overshoot; inputs from the current epoch plus blanks; SIG_ALL melt; change from the blanks; pending melts are checked again later |
 | Combine | approve | A same-epoch swap into fewer, larger proofs, when a spend would need more inputs than one request should carry (about 16 over QR), and to move proofs out of a keyset before its `final_expiry` |
 | Rotate | approve per old epoch | Next epoch, only if the current one holds proofs; each old epoch's proofs are swapped into the new key |
-| Restore | none (re-add the mint for `P`, `v`) | Per epoch from 0 until the first empty one, and per keyset, inactive ones included: NUT-09 in batches of 100 until three are empty; NUT-07 drops spent proofs |
+| Restore | none (re-add the mint for `P`, `v`) | Per epoch from 0 until four in a row are empty (change may sit three epochs above its inputs), and per keyset, inactive ones included: NUT-09 in batches of 100 until three are empty; NUT-07 drops spent proofs |
 
 Counters advance before a request leaves (write-ahead), so a crash never reuses an output; counters
 of a request that Prime declined or the mint refused are used again, so restores meet no long gaps.
@@ -277,8 +285,8 @@ before it.
 | # | Branch | Delivers | Tests |
 |---|---|---|---|
 | 0 | `cashu/0-plan` | This plan, D14 | Compatibility pins against the current code: the CBOR of every v1 request and response, a populated v1 `fps-state.cbor`, the hashes of both Fedimint vector files; a CI guard job running `cargo metadata --locked` in the root and in `wallet/` |
-| 1 | `cashu/1-core` | `crates/cashu-core` (`fps-cashu-core`): `fps-cashu-v1`, canonical URLs, template, `hash_to_curve`, `B_`, NUT-11 message and its one-reading check, NUT-12 DLEQ, keyset ids, swap and melt analysis with reviews, signing. `devtools-cashu/` produces vectors with `cashu` 0.18.3 | Unit tests, vectors, cross-checks against the `cashu` crate (its own `verify_spending_conditions` accepts our signatures), the collision transcripts refused, key separation from `fps-v1`, the curve-feature allowlist check, the device build, CI job `cashu-vectors` |
-| 2 | `cashu/2-prime` | Protocol variants and `PROTOCOL.md`; `crates/cashu-signer` (the service with `fps-cashu.cbor`, and `Device`); `ApprovalKind::Cashu` and the dispatch arm; the Prime app opens `Device` | Service tests, the differential test against the bare `Signer` (empty and populated Cashu file), cross-backend Busy, GetResult and Cancel, old-phone and old-Prime compatibility, state-file isolation, device build and both simulator checks |
+| 1 | `cashu/1-core` | `crates/cashu-core` (`fps-cashu-core`): `fps-cashu-v1`, canonical URLs, template, `hash_to_curve`, `B_`, NUT-11 message and its one-reading check, NUT-12 DLEQ, keyset ids, swap and melt analysis with reviews, signing. `devtools-cashu/` produces vectors with `cashu` 0.18.3 | Unit tests, vectors, cross-checks against the `cashu` crate (its own `verify_spending_conditions` accepts our signatures), the collision transcripts refused, key separation from `fps-v1`, the device build, CI job `cashu-vectors` |
+| 2 | `cashu/2-prime` | Protocol variants and `PROTOCOL.md`; `crates/cashu-signer` (the service with `fps-cashu.cbor`, and `Device`); `ApprovalKind::Cashu` and the dispatch arm; the Prime app opens `Device` | Service tests, the differential test against the bare `Signer` (empty and populated Cashu file), cross-backend Busy, GetResult and Cancel, old-phone and old-Prime compatibility, state-file isolation, the curve-feature check, device build and both simulator checks |
 | 3 | `cashu/3-wallet` | `cashu/` workspace (with a bare `fps-core`, so the lockfile seeds right) and `fps-cashu` with every flow | Against CDK's mint in-process and the real Cashu service as Prime: add, top up, receive, send and redeem, take back, pay, decline, combine, rotate, restore on a new phone, the mint refusing an unsigned spend, the subgraph check; CI job `cashu-wallet` |
 | 4 | `cashu/4-simulator` | `scripts/sim-cashu-e2e.sh` | `fps-cashu` against the Prime app in the simulator, every review decided on screen; both Fedimint simulator checks again |
 | 5 | `cashu/5-ios` | `fps_cashu` UniFFI API with `cashu_install_tls`, the umbrella's bindgen, `scripts/ios-core-cashu.sh`, the Cashu screen in Prime Wallet (only in a Cashu build) | Rust tests for the exported API, the unchanged `fps_mobile.swift`, the fps-mobile subgraph against the allowlist, the fedimint fixtures once on a copy of `wallet/` with the four bumps applied, an `xcodebuild` of the app with each core |

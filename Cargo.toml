@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/cashu-core",
     "crates/policy",
     "crates/protocol",
     "crates/signer",
@@ -11,8 +12,8 @@ members = [
     "tools/sim-e2e",
 ]
 # Built separately: `prime-app` by the Foundation SDK, `devtools` against the real fedimint crates,
-# `wallet` against the patched fedimint in `third_party/`.
-exclude = ["prime-app", "devtools", "wallet", "third_party"]
+# `devtools-cashu` against the `cashu` crate, `wallet` against the patched fedimint in `third_party/`.
+exclude = ["prime-app", "devtools", "devtools-cashu", "wallet", "third_party"]
 
 [workspace.package]
 version = "0.1.0"

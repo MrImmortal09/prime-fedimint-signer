@@ -9,9 +9,11 @@
 //! length, and messages over [`MAX_MESSAGE_SIZE`] are refused before parsing.
 
 mod bytes;
+mod cashu;
 mod messages;
 
 pub use bytes::{ByteBuf, FixedBytes};
+pub use cashu::*;
 pub use messages::*;
 use serde::de::{DeserializeOwned, IgnoredAny};
 use serde::{Deserialize, Serialize};
