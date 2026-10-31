@@ -10,7 +10,11 @@ struct HomeView: View {
                 HStack {
                     Label("FEDIMINT", systemImage: "circle.hexagongrid").font(.caption.weight(.semibold))
                     Spacer()
+#if canImport(fps_cashuFFI)
+                    Text("Cashu · Available").font(.caption).foregroundStyle(WalletStyle.muted)
+#else
                     Text("Cashu · Unavailable").font(.caption).foregroundStyle(WalletStyle.muted)
+#endif
                 }.foregroundStyle(WalletStyle.copper)
                 WalletPanel {
                     Text("Available balance").font(.subheadline).foregroundStyle(WalletStyle.muted)

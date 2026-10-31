@@ -16,7 +16,11 @@ struct SettingsView: View {
             }
             Section("Wallet & appearance") {
                 LabeledContent("Protocol", value: "Fedimint")
+#if canImport(fps_cashuFFI)
+                LabeledContent("Cashu", value: "Available")
+#else
                 LabeledContent("Cashu", value: "Not yet supported")
+#endif
                 LabeledContent("Appearance", value: "Charcoal")
                 Text("One federation per wallet is currently supported.").font(.footnote).foregroundStyle(WalletStyle.muted)
             }

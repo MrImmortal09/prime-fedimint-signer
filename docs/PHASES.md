@@ -27,7 +27,7 @@ Fedimint code as it is. Each maps to a row of [`plan/12_CASHU.md`](plan/12_CASHU
 | C2 | `cashu/2-prime` | Protocol variants, the Cashu service and `Device`, the Prime app opening it | Done |
 | C3 | `cashu/3-wallet` | The phone's `cashu/` workspace and `fps-cashu`: add a mint, top up, receive, send, take back, pay | Done |
 | C4 | `cashu/4-simulator` | The Cashu wallet against the Prime app in the simulator | Planned |
-| C5 | `cashu/5-ios` | The `fps_cashu` bindings and the Cashu screen in Prime Wallet | Planned |
+| C5 | `cashu/5-ios` | The `fps_cashu` bindings and the Cashu screen in Ecash Wallet | Done |
 
 ## Phase 0: scaffold and toolchain spike
 
@@ -759,3 +759,44 @@ the `cashu-wallet` CI job, and the subgraph allowlist as a CI gate (the script r
 tests use testnut rather than CDK's mint in the test process, so declining, combining, rotating,
 restoring on a new phone and the mint refusing an unsigned spend are untested. Cashu 4's
 simulator script, `scripts/sim-cashu-e2e.sh`, was not done.
+
+## Cashu 5: Cashu in Ecash Wallet on iOS
+
+The fifth Cashu pull request, `cashu/5-ios`: the `fps_cashu` UniFFI API, one Rust library with both
+wallets for the iOS app, and the Cashu screen in Ecash Wallet. With a core from
+`scripts/ios-core.sh` the app is the Fedimint one, unchanged; with a core from
+`scripts/ios-core-cashu.sh` it has Cashu.
+
+### Delivered
+
+| Path | What it is |
+|---|---|
+| `cashu/fps-cashu`, feature `uniffi` | The API, namespace `fps_cashu`, every name prefixed `Cashu`: `cashuInstallTls()`; `CashuWallet` with `open`, `setSimulatorAddress`, `mints`, `addMint`, `balanceSat`, `topUp`, `finishTopUp`, `receive`, `send`, `takeBack`, `pay`, `sends` and `activity`; its records; `CashuError` and `CashuLinkError`; and `CashuPrimeLink`, which the app implements |
+| `cashu/fps-core` | Re-exports fps-mobile, unchanged, and fps-cashu, so both are in the one static library the app links |
+| `scripts/ios-core-cashu.sh` | Builds fps-core for `aarch64-apple-ios` and `aarch64-apple-ios-sim` (debug, or `--release`), generates both namespaces' Swift from the device library, fails if `fps_mobile.swift` differs from the tracked file, and writes `ios/FpsMobile.xcframework`, with one `module.modulemap` declaring `fps_mobileFFI` and `fps_cashuFFI`, and `ios/PrimeWallet/Generated/fps_cashu.swift` |
+| `ios/PrimeWallet/Generated/fps_cashu.swift` | The generated bindings, inside `#if canImport(fps_cashuFFI)` |
+| `ios/PrimeWallet/Model/CashuModel.swift`, `ios/PrimeWallet/Views/Cashu/` | The Cashu model, the link to the app's one `PrimeBridge`, a floating Cashu button and the Cashu screen: balance, mints, top up, receive, send and take back, pay, sent tokens and activity |
+| `PrimeWalletApp.swift`, `HomeView.swift`, `JoinView.swift`, `SettingsView.swift` | The Cashu layer above the unchanged `RootView`, `cashuInstallTls()` at launch, and labels saying Cashu is available, each inside `#if canImport(fps_cashuFFI)` with the old code under `#else` |
+
+Cashu requests go through the Fedimint wallet's `PrimeBridge`, so in QR mode they show on the same
+Prime sheet. With Settings on the simulator over Wi-Fi they go over TCP to the KeyOS simulator; the
+wallet reads the setting before every call. The Cashu wallet lives in `Application Support/cashu/`,
+beside the Fedimint wallet's folder.
+
+### How it is verified
+
+| Check | Result |
+|---|---|
+| Fedimint-only build | `scripts/ios-core.sh`, then `xcodebuild` for iOS devices: succeeded, with the Cashu code compiled out |
+| Cashu build | `scripts/ios-core-cashu.sh`: `fps_mobile.swift` is byte for byte the tracked file. `xcodebuild` for iOS devices and for the iOS Simulator both succeeded, each app linking the Cashu exports |
+| The app in the iOS Simulator against the Prime app in the KeyOS simulator (a UI test on the Cashu screen, each review approved by a swipe on Prime's screen) | "Cashu: update mint keys", and the 742 sats already at the mint found; top up 100 to 842; "Cashu: send ecash" for 10, to 831; take back 9, to 840; "Cashu: pay Lightning invoice" for 16 sats, fee 2 and change 14, to 822 |
+| Home screen | "Cashu · Available" and the floating Cashu button |
+
+### Still open
+
+- Cut for the hackathon, as in Cashu 3, and the plan's other Cashu 5 checks: Rust tests of the
+  exported API, and fedimint's fixtures on a copy of `wallet/` with the four bumps.
+- The Cashu screen ran in the iOS Simulator over the network link only, not yet on an iPhone or
+  over QR codes.
+- The floating Cashu button covers the end of the home screen's last line.
+- The debug core is about 860 MB per slice; the `--release` build was not tried.
