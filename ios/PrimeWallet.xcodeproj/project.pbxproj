@@ -181,7 +181,7 @@
 				DEVELOPMENT_TEAM = 4G96L8W59F;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Prime Wallet";
+				INFOPLIST_KEY_CFBundleDisplayName = "Ecash Wallet";
 				INFOPLIST_KEY_NSCameraUsageDescription = "The camera reads Passport Prime's answers, invite codes, invoices and ecash.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -221,7 +221,7 @@
 				DEVELOPMENT_TEAM = 4G96L8W59F;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Prime Wallet";
+				INFOPLIST_KEY_CFBundleDisplayName = "Ecash Wallet";
 				INFOPLIST_KEY_NSCameraUsageDescription = "The camera reads Passport Prime's answers, invite codes, invoices and ecash.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

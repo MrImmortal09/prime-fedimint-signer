@@ -8,7 +8,7 @@ struct JoinView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Label("PRIME WALLET", systemImage: "circle.hexagongrid")
+                    Label("ECASH WALLET", systemImage: "circle.hexagongrid")
                         .font(.caption.weight(.semibold)).foregroundStyle(WalletStyle.copper)
                     Text("Connect a federation")
                         .font(.title.bold())

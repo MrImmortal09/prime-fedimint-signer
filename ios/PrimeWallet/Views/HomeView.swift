@@ -55,7 +55,7 @@ struct HomeView: View {
                 Text("Ecash is backed by your federation. Learn about trust and privacy in Settings.")
                     .font(.footnote).foregroundStyle(WalletStyle.muted)
             }.padding(20).frame(maxWidth: 650)
-        }.background(WalletStyle.background).navigationTitle("Prime Wallet").navigationBarTitleDisplayMode(.inline)
+        }.background(WalletStyle.background).navigationTitle("Ecash Wallet").navigationBarTitleDisplayMode(.inline)
             .refreshable { await model.refresh() }
     }
     private var federationName: String {
