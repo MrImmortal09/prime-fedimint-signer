@@ -1,0 +1,4 @@
+# Fixtures that tests compare byte for byte or hash: no line-ending conversion on any checkout.
+*.cbor binary
+crates/signer-core/tests/vectors/*.json -text
+crates/protocol/tests/compat/*.json -text
