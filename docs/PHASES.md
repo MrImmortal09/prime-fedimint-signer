@@ -15,6 +15,20 @@ and 2 are each split in two because they are the largest.
 | 5 | Stage 5 | NFC tap-to-approve (optional) | Planned |
 | 6 | Stage 6 | Hardening and upstreaming | Planned |
 
+### Cashu phases
+
+Cashu is a second backend beside Fedimint, built as a stack of pull requests that leave the
+Fedimint code as it is. Each maps to a row of [`plan/12_CASHU.md`](plan/12_CASHU.md).
+
+| Phase | Branch | Scope | State |
+|---|---|---|---|
+| C0 | `cashu/0-plan` | The plan, decision D14, compatibility pins for the Fedimint wire format, state and vectors | Done |
+| C1 | `cashu/1-core` | The Cashu wire types, `crates/cashu-core`, golden vectors and cross-checks from the `cashu` crate | Done |
+| C2 | `cashu/2-prime` | Protocol variants, the Cashu service and `Device`, the Prime app opening it | Planned |
+| C3 | `cashu/3-wallet` | The phone's `cashu/` workspace and `fps-cashu` with every flow | Planned |
+| C4 | `cashu/4-simulator` | The Cashu wallet against the Prime app in the simulator | Planned |
+| C5 | `cashu/5-ios` | The `fps_cashu` bindings and the Cashu screen in Prime Wallet | Planned |
+
 ## Phase 0: scaffold and toolchain spike
 
 ### Delivered
@@ -434,3 +448,108 @@ closed port, and a bare host getting the default port.
 
 - An iOS build and device checks with Xcode, including accessibility, Dynamic Type, and landscape.
 - The physical iPhone-to-Prime camera loop and hardware color parity.
+
+## Cashu 1: the Cashu signer core
+
+The first Cashu pull request, `cashu/1-core`: everything Prime needs to check and sign a Cashu
+spend, as a library and wire types that nothing calls yet. The protocol variants, the Cashu service
+and the app follow in Cashu 2. No Fedimint file changes beyond two lines in
+`crates/protocol/src/lib.rs`.
+
+### Delivered
+
+| Path | What it is |
+|---|---|
+| `crates/protocol/src/cashu.rs` | The Cashu wire types: `CashuRequest`, `CashuResponse` and their bodies, reached through `Request::Cashu` and `Response::Cashu` once Cashu 2 adds them. Spec: `PROTOCOL.md`. Their tests are in `crates/cashu-core/tests/protocol.rs`, so fps-protocol gains only the module |
+| `crates/cashu-core` (`fps-cashu-core`) | The `fps-cashu-v1` key scheme, Prime's half and the phone's; canonical mint URLs; the secret template; NUT-00 `hash_to_curve` and `B_`; the NUT-11 `SIG_ALL` message and its one-reading check; NUT-12 DLEQ; NUT-02 keyset ids, mint validation and updates; swap and melt analysis with their reviews; signing. Spec: [`KEY_SCHEME_CASHU.md`](KEY_SCHEME_CASHU.md) |
+| `devtools-cashu/` (`fps-devtools-cashu`) | Host-only workspace linking the real `cashu` 0.18.3 crate: the golden vector generator and randomised cross-checks |
+| `.github/workflows/ci.yml` | Job `cashu-vectors`: regenerates the vectors, diffs them, runs the cross-checks |
+
+The crate depends on fps-protocol, fps-signer-core (only its review type, BOLT11 parsing and error
+type), bitcoin and zeroize, all already in the device build. Its dependency graph has no
+`getrandom`, `uuid`, `url`, `serde_json` or `lightning`, it adds no feature to `bitcoin`, and the
+root `Cargo.lock` gains only its own entry. It answers with existing rejection codes only.
+
+### How it is verified
+
+| Check | Result |
+|---|---|
+| Golden vectors from `cashu` 0.18.3 | 14 hash-to-curve and 8 blinding cases with the NUT-00 vectors, 7 keyset ids of both versions with NUT-02's own, 19 mint URLs, 13 DLEQ cases with NUT-12's, and 3 mints of `fps-cashu-v1` derivations with 48 outputs whose secrets `cashu` parses and writes back unchanged: all reproduced byte for byte |
+| Six full spends: send, combine, move to a new key, send with change three epochs ahead, two melts | `cashu`'s `sig_all_msg_to_sign` equals Prime's message, `verify_spending_conditions` accepts Prime's signature, and the signature is reproduced byte for byte |
+| Refused vectors | The two known collision transcripts. Seven spends: a collision ground from the wallet's own change, a tampered opening, a foreign lock key, change with a stranger's secret under the wallet's own `r`, a melt input without a DLEQ proof, change four epochs above its inputs, a melt with too few blanks. Three mints: a non-canonical URL, a wrong keyset id, and a keyset listing another's keys under other amounts. Each is refused with its code, by the rule its stored reason names |
+| Randomised cross-checks against `cashu` | 500 hash-to-curve and blinding cases, 300 keyset ids, 40 mints `cashu` generated (pinned the same by an identical update, and a copy of one keyset's keys under rotated amounts refused, alone or as an update), 200 template secrets, 300 swap and melt messages, 100 DLEQ proofs, 2,000 URLs; 60 random swaps (send, combine, move) and 40 random melts signed by Prime and accepted by `verify_spending_conditions`, and refused once an amount or the quote changes |
+| Behaviour tests | analysis 24, vectors 11, mint and URL 11, protocol 8, key scheme 8, message 6, and an ignored measurement of the refusal rates below. The message tests include the NUT-11 vectors and the one-reading check against plain recursion on 6,000 transcripts whose keys are points or only look like keys; the protocol tests add an unknown field to every map of every body; the key scheme tests check the frozen derivations against their formulas and show no Cashu key or tag meets an `fps-v1` one for the seeds of its frozen vectors |
+| Fedimint untouched | `cargo test --workspace` passes 225 tests on main, the 157 from before among them, and the pins of Cashu 0 hold |
+| Device build | `scripts/device-build.sh -p fps-cashu-core --release` builds for `armv7a-unknown-xous-elf` with the SDK's nightly, without warnings |
+
+Host timings, Apple M4, release build at opt-level `s`:
+
+| Operation | Host |
+|---|---|
+| Analyse and sign a swap, 1 input and 2 outputs | 0.28 ms |
+| … 4 inputs and 16 outputs | 0.66 ms |
+| … 64 inputs and 64 outputs | 2.0 ms, or 7.2 ms with a DLEQ proof on every input |
+| Analyse and sign a melt, 3 inputs with DLEQ proofs and 2 blanks | 0.49 ms |
+| Verify one DLEQ proof | 0.08 ms |
+| One-reading check of 64 outputs | 0.03 ms, or 0.21 ms when their hex alone reads two ways and the keys are parsed |
+| Validate a mint of 3 keysets, 128 keys | 0.32 ms |
+
+With the 50 to 150 times factor from Phase 0, a typical request takes under 0.1 s on the device
+and the largest, 64 inputs with DLEQ proofs and 64 outputs, about 0.35 to 1.1 s.
+
+`cargo test --workspace` runs the core's tests. `cargo run --release --manifest-path
+devtools-cashu/Cargo.toml --bin golden` regenerates the vectors, which CI checks are unchanged, and
+`cargo test --release --manifest-path devtools-cashu/Cargo.toml` runs the cross-checks. `cargo test
+--release -p fps-cashu-core --test message -- --ignored --nocapture` measures the refusal rates.
+
+### Findings
+
+- **A key update could relabel the mint's own keys.** Neither keyset id version ties a key to its
+  amount: a version 01 id of the mint's real keys listed under other amounts is valid. A melt's
+  message does not commit to input amounts, and Prime counts each input at the amount its DLEQ
+  proof's key is pinned for, so a compromised phone could pin such a keyset with a routine "update
+  mint keys" and then have a real proof of 2^20 sats counted as 2^11, under the PIN threshold, which
+  the `cashu` crate's own checks accept. Prime now refuses a key under two amounts anywhere in what
+  it pins for a mint; an update cannot change a pinned keyset's keys or fee; and a keyset the mint
+  stops listing stays pinned as inactive, so no key's amount is ever forgotten and listed anew. A
+  keyset first pinned while the phone is compromised is still trusted on first use. One cost: a
+  mint that changes the fee of a version 00 keyset under the same id can no longer be updated, as
+  NUT-02 asks wallets to refuse a keyset whose id collides with one they hold.
+- **Two readings by form are common, by points less so.** Measured with the core's own check on
+  100,000 honest transcripts each, the outputs splitting a random total into powers of two in
+  increasing order: 6.1% of totals below 2^10 sats, 26% below 2^20 and 33% below 2^30 read two
+  ways by the form of their hex alone. Counting only readings whose keys are points, the only ones
+  a mint signs, 0.6%, 9.5% and 13.4% do (0.2%, 8.6% and 12.4% in decreasing order), and those are
+  refused. Above 2^10, most come from a 1,024-sat output that is not last (four in five of the
+  refusals below 2^20): `1024` also reads as `1` and a key beginning `024`, which is a point half
+  the time, whenever the key's last three hex characters are digits. A melt's blanks never collide.
+  The phone must run the same check before it asks Prime, and move to the next counters or
+  re-randomise a leaving output when it fails; Cashu 3 does.
+- **Nutshell reads more forms of `B_`.** CDK re-encodes every `B_` compressed before it builds the
+  message, but Nutshell 0.21.0 hashes the string the wallet posted and accepts any key
+  libsecp256k1 parses, uncompressed (`04`) and hybrid (`06`, `07`) included. So the check counts
+  130-character readings too, where the plan first counted only `02` and `03` keys. Such a window
+  is a point only if its last 64 digits are the y coordinate of its first 64, which no phone can
+  arrange by grinding blinding factors, so these readings refuse nothing honest in practice.
+- **Restores must look four epochs ahead.** Prime signs change up to three epochs above its inputs,
+  so a restore that stopped at the first empty epoch could miss change at epoch e + 3 when e + 1 and
+  e + 2 were never used. A restore now stops after four empty epochs in a row.
+- **A secret used twice burns a proof.** The mint tracks spent secrets, so an output whose secret is
+  an input's, or another output's, can never be spent. A compromised phone could have Prime approve
+  a combine that destroys the wallet's proofs; the analysis refuses repeated secrets.
+- **A quote id could hide a blank.** The phone supplies the quote id, and one that begins with an
+  amount and a key puts an extra blank in a melt's message. Quote ids must be printable ASCII of at
+  most 128 characters that do not begin like an output. A melt already counts every input as
+  leaving, so this closes a mislabelling rather than a loss.
+- **Prime cannot see the phone's counters.** A compromised phone can put change at a counter a
+  restore never reaches, or at the position of a proof the wallet already holds. That strands
+  funds rather than moving them; the Cashu service can keep the highest counter it has signed per
+  keyset and epoch.
+
+### Still open
+
+- Cashu 2: the protocol variants, the Cashu service with `fps-cashu.cbor`, `Device`, and the Prime
+  app opening it, with the device and simulator checks. The service passes the mint it has pinned
+  to `validate_mint` and `review_add_mint`, and keeps what `validate_mint` returns.
+- The phone side of the one-reading check, in Cashu 3.
+- Device timings need hardware.
