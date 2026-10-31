@@ -17,7 +17,7 @@ start_simulator() {
   local log="$out/simulator-$1.log"
   # Job control gives the simulator its own process group, so stopping it stops all of it.
   set -m
-  "$root/scripts/sdk-shell.sh" bash -c "cd '$root/prime-app' && exec foundation sim" >"$log" 2>&1 &
+  "$root/scripts/run-simulator.sh" >"$log" 2>&1 &
   sim_pid=$!
   set +m
   for _ in $(seq 1 1200); do

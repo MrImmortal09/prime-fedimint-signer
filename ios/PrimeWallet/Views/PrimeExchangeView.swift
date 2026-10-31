@@ -32,10 +32,12 @@ struct PrimeExchangeView: View {
             ScrollView {
                 VStack(spacing: 12) {
                     HStack {
-                        Text(scanning ? "STEP 2 OF 2" : "STEP 1 OF 2").font(.caption.weight(.semibold)).tracking(2)
+                        Text(exchange.pairingStep.map { "PAIRING · \($0) OF 2" } ?? (scanning ? "SCAN RESPONSE" : "SHOW REQUEST")).font(.caption.weight(.semibold)).tracking(2)
                         Spacer()
                         Label("QR connection", systemImage: "qrcode").font(.caption)
                     }.foregroundStyle(WalletStyle.copper)
+                    Text(exchange.title).font(.title2.bold())
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     if scanning { answer } else { request }
                 }.padding(20).frame(maxWidth: 600)
             }.background(WalletStyle.background)
@@ -100,7 +102,7 @@ struct PrimeExchangeView: View {
             Text("Large").tag("high")
         }
         .pickerStyle(.segmented)
-        Text("On Prime, scan this code. Check the details, then slide to approve.")
+        Text(exchange.instructions)
             .multilineTextAlignment(.center)
             .font(.callout)
         Button("Scan Passport response") { scanning = true }
@@ -108,8 +110,11 @@ struct PrimeExchangeView: View {
     }
 
     @ViewBuilder private var answer: some View {
-        Text("Bring the answer home").font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading)
-        Text("Scan the response shown on Prime. Your phone will verify it and continue the operation.").foregroundStyle(WalletStyle.muted)
+        Text(exchange.pairingStep == 1
+             ? "Scan Prime’s response. Next, a second QR will appear to connect this wallet."
+             : exchange.pairingStep == 2
+             ? "Scan Prime’s response to finish pairing and open your wallet."
+             : "Scan the response shown on Prime to continue.").foregroundStyle(WalletStyle.muted)
         if Scanner.isAvailable {
             ScannerView { code in take(code) }
                 .frame(height: 280)

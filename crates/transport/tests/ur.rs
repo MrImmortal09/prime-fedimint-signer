@@ -190,3 +190,24 @@ fn denser_parts_make_fewer_codes() {
     assert_eq!(reassemble(UR_TYPE_REQUEST, &large), bytes);
     assert_eq!(reassemble(UR_TYPE_REQUEST, large.iter().rev()), bytes);
 }
+
+#[test]
+fn response_recovery_frames_replace_a_missed_original_fragment() {
+    let bytes = message(3_000);
+    let originals = encode_parts(UR_TYPE_RESPONSE, &bytes);
+    let recovery = fps_transport::ur::encode_redundant(UR_TYPE_RESPONSE, &bytes);
+    assert_eq!(recovery.len(), originals.len() * 3);
+    for missed in 0..originals.len() {
+        let received: Vec<_> = recovery
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != missed)
+            .map(|(_, part)| part)
+            .collect();
+        assert_eq!(
+            reassemble(UR_TYPE_RESPONSE, received),
+            bytes,
+            "camera missed original fragment {missed}"
+        );
+    }
+}

@@ -74,7 +74,12 @@ pub fn encode_redundant(ur_type: &str, message: &[u8]) -> Vec<String> {
     encode_parts(ur_type, message, MAX_PART_CHARS, true)
 }
 
-fn encode_parts(ur_type: &str, message: &[u8], max_part_chars: usize, redundant: bool) -> Vec<String> {
+fn encode_parts(
+    ur_type: &str,
+    message: &[u8],
+    max_part_chars: usize,
+    redundant: bool,
+) -> Vec<String> {
     if message.is_empty() {
         // The fountain encoder needs at least one byte; an empty message is one single-part code.
         return vec![foundation_ur::to_string(ur_type, message).to_ascii_uppercase()];
@@ -83,7 +88,11 @@ fn encode_parts(ur_type: &str, message: &[u8], max_part_chars: usize, redundant:
     let mut encoder = Encoder::new();
     encoder.start(ur_type, message, fragment_len);
     let count = encoder.sequence_count();
-    let frames = if redundant && count > 1 { count * 3 } else { count };
+    let frames = if redundant && count > 1 {
+        count * 3
+    } else {
+        count
+    };
     (0..frames)
         .map(|_| encoder.next_part().to_string().to_ascii_uppercase())
         .collect()

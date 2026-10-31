@@ -12,7 +12,7 @@ struct JoinView: View {
                         .font(.caption.weight(.semibold)).foregroundStyle(WalletStyle.copper)
                     Text("Connect a federation")
                         .font(.title.bold())
-                    Text("Add your invite code, then approve the connection on Passport Prime.")
+                    Text("Add your invite code. Approve the federation, then the wallet connection on Prime.")
                         .font(.subheadline).foregroundStyle(WalletStyle.muted)
                 }
                 VStack(alignment: .leading, spacing: 12) {
