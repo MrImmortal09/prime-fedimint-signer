@@ -612,6 +612,9 @@ fn a_fresh_state_is_unchanged() {
 #[test]
 #[ignore]
 fn write_fixture() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/compat/fps-state-v1.cbor");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/compat/fps-state-v1.cbor"
+    );
     std::fs::write(path, run_scenario(&Golden::load())).unwrap();
 }
