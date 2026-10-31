@@ -25,7 +25,7 @@ Fedimint code as it is. Each maps to a row of [`plan/12_CASHU.md`](plan/12_CASHU
 | C0 | `cashu/0-plan` | The plan, decision D14, compatibility pins for the Fedimint wire format, state and vectors | Done |
 | C1 | `cashu/1-core` | The Cashu wire types, `crates/cashu-core`, golden vectors and cross-checks from the `cashu` crate | Done |
 | C2 | `cashu/2-prime` | Protocol variants, the Cashu service and `Device`, the Prime app opening it | Done |
-| C3 | `cashu/3-wallet` | The phone's `cashu/` workspace and `fps-cashu` with every flow | Planned |
+| C3 | `cashu/3-wallet` | The phone's `cashu/` workspace and `fps-cashu`: add a mint, top up, receive, send, take back, pay | Done |
 | C4 | `cashu/4-simulator` | The Cashu wallet against the Prime app in the simulator | Planned |
 | C5 | `cashu/5-ios` | The `fps_cashu` bindings and the Cashu screen in Prime Wallet | Planned |
 
@@ -693,3 +693,69 @@ costs no more than before whatever Cashu holds, and the first Cashu request afte
   `sim-cashu-e2e.sh` should commit the scratch driver's check: add a mint, reset, and `Info` lists
   none.
 - The phone (Cashu 3), the Cashu simulator script (Cashu 4), and device timings on hardware.
+
+## Cashu 3: the phone's Cashu wallet
+
+The third Cashu pull request, `cashu/3-wallet`: `fps-cashu`, the phone's watch-only Cashu wallet,
+in its own `cashu/` workspace beside `wallet/`. Every proof is locked to Prime's key with a SIG_ALL
+lock, so every spend is a swap or melt that Prime reviews and signs; receiving needs no Prime. Built
+for the hackathon: each flow works on its happy path, and much of the plan is cut (Still open).
+
+### Delivered
+
+| Path | What it is |
+|---|---|
+| `cashu/` | The workspace, with its own `Cargo.lock` seeded from `wallet/Cargo.lock`, so fps-mobile resolves as it does there |
+| `cashu/fps-cashu` | The wallet: CDK's HTTP mint client (`cashu` and `cdk` `=0.18.3`, no CDK store), a JSON store written atomically (`cashu-wallet.json`), the phone half of `fps-cashu-v1` from `fps-cashu-core`, and the link to Prime: the app's `CashuPrimeLink`, or TCP to the KeyOS simulator while an address is set |
+| `cashu/fps-cashu/examples/cashu_cli.rs` | The whole flow against the Prime app in the KeyOS simulator, checking every balance |
+| `cashu/fps-core` | The crate Cashu 5 builds into the iOS library; here it keeps fps-mobile's graph in the lockfile |
+| `scripts/cashu-subgraph-check.sh` | Compares fps-mobile's graph for `aarch64-apple-ios` in `wallet/` and in `cashu/`: only CDK's four patch bumps and the features it adds may differ |
+
+The flows:
+
+- **Add a mint:** the canonical URL, the mint's info and keysets, then `AddMint`, which Prime shows
+  as "Cashu: add mint", or "Cashu: update mint keys" for a mint it already pins. The wallet then
+  scans the mint for this Prime's earlier outputs (NUT-09, then NUT-07), so a second phone or a
+  reinstall carries on from the last counter and gets the unspent proofs back, logged as `restore`.
+- **Top up** by Lightning: a mint quote, then, once it is paid, outputs locked to Prime. No Prime.
+- **Receive** a `cashuA` or `cashuB` token of an added mint, swapped into proofs locked to Prime.
+  No Prime.
+- **Send:** a SIG_ALL swap Prime approves as "Cashu: send ecash", into the recipient's plain proofs
+  and the change, given as a `cashuB` token. **Take back** swaps an unredeemed token's proofs back
+  without Prime, and fails if it was redeemed.
+- **Pay** a BOLT11 invoice: a melt quote, then a SIG_ALL melt Prime approves as "Cashu: pay
+  Lightning invoice", with blank outputs for the change.
+
+Counters advance before a request leaves.
+
+### How it is verified
+
+| Check | Result |
+|---|---|
+| Live, against https://testnut.cashu.space with the Prime app's Cashu service in the test process (`cargo test -p fps-cashu --test live -- --ignored`) | Add the mint, top up 256, send 64 and receive the token (63 after the mint's fee; receiving it again is refused), send 32 and take it back (31; a second take-back fails), pay a 16-sat invoice (fee 1, change 15): balance 235. Reopened from disk: the same balance and 6 activity entries. A second wallet on the same Prime gets all 235 back and tops up 8 without reusing a counter. Passed 5 times |
+| Through the Prime app in the KeyOS simulator (`cashu_cli`, each review approved by a swipe on the simulator's screen) | "Cashu: update mint keys", "Cashu: send ecash" twice and "Cashu: pay Lightning invoice" (16 sats, fee reserve 1, mint fee 1). From the 508 sats earlier runs left: top up 256 to 764, send 64 to 699, receive it to 762, send 32 to 729, take it back to 760, pay 16 with a fee of 2 to 742 |
+| `cargo test -p fps-cashu` | 4 passed, the live test ignored; clippy, with and without `uniffi`, and fmt are clean |
+| Fedimint untouched | Root `cargo test --workspace --locked`: 266 passed. The root and `wallet/` lockfiles are unchanged, and `scripts/cashu-subgraph-check.sh` passes: 602 packages in `wallet/`, 603 in `cashu/` |
+
+### Findings
+
+- **A mint's own invoice cannot be paid from that mint once its fake backend has paid it.**
+  testnut's fake Lightning pays the invoices it issues a few seconds after issuing them, and the
+  mint settles a melt of one of its own invoices internally, so it then refuses the melt ("Request
+  already paid"). The live test approves at once and is faster; through the simulator, with the
+  review on screen, it was not. `cashu_cli` pays an invoice it makes itself, for a node that does
+  not exist, which the fake backend "pays".
+- **The approval swipe misses on a loaded machine.** During an iOS build of fedimint and CDK (load
+  average 45), three swipes on "Cashu: send ecash" did not register and the request timed out
+  after 600 s. On an idle machine every swipe registered at the first try.
+
+### Still open
+
+Cut for the hackathon: reviews of this code; crash recovery beyond write-ahead counters (a signed
+swap or melt is not saved before it is posted, nothing is posted again after a crash, and a pending
+melt is not checked again); combine; rotate; the plan's restore, of which there is only the scan
+when a mint is added (epoch 0, active keysets); the cap on unverified mints; NUT-20 on mint quotes;
+the `cashu-wallet` CI job, and the subgraph allowlist as a CI gate (the script runs by hand). The
+tests use testnut rather than CDK's mint in the test process, so declining, combining, rotating,
+restoring on a new phone and the mint refusing an unsigned spend are untested. Cashu 4's
+simulator script, `scripts/sim-cashu-e2e.sh`, was not done.
