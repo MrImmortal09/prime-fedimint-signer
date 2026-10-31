@@ -92,12 +92,18 @@ struct SendView: View {
             }
         } else {
             Section("Amount") {
-                TextField("Sats", text: $amount).keyboardType(.numberPad)
+                TextField("Sats", text: $amount).keyboardType(.decimalPad)
+                Text("Ecash uses 0.512-sat increments. For whole sats, use a multiple of 64, such as 128 sats.")
+                    .font(.footnote).foregroundStyle(WalletStyle.muted)
+                if !amount.isEmpty && Amounts.ecashMsat(fromSats: amount) == nil {
+                    Text("Enter an exact ecash amount, such as 100.352 or 128 sats.")
+                        .font(.footnote).foregroundStyle(WalletStyle.danger)
+                }
                 Toggle("Show the token only on Prime", isOn: $showOnPrime)
             }
             Section {
                 Button("Review ecash send") { reviewing = true }
-                .disabled(Amounts.msat(fromSats: amount) == nil)
+                .disabled(Amounts.ecashMsat(fromSats: amount) == nil)
             } footer: {
                 Text("Prime stages the notes once you approve, then releases them as a token.")
             }
@@ -131,7 +137,7 @@ struct SendView: View {
                     invoice = ""
                 }
             case .ecash:
-                guard let msat = Amounts.msat(fromSats: amount) else { return }
+                guard let msat = Amounts.ecashMsat(fromSats: amount) else { return }
                 let onPrime = showOnPrime
                 sent = await model.run("Preparing ecash; approve on Prime", {
                     try await $0.sendEcash(amountMsat: msat, showOnPrime: onPrime)
