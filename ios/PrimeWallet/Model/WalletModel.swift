@@ -12,6 +12,8 @@ final class WalletModel: ObservableObject {
     @Published private(set) var pendingSends: [PendingSend] = []
     /// What the wallet is doing, while it does it.
     @Published var busy: String?
+    /// What just finished, until the person dismisses it.
+    @Published var notice: String?
     /// The last failure, until the person dismisses it.
     @Published var error: String?
     @Published private(set) var openError: String?

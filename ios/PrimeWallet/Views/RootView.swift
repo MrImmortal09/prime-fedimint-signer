@@ -35,6 +35,14 @@ struct RootView: View {
         } message: {
             Text(model.error ?? "")
         }
+        .alert(
+            "Done",
+            isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.notice ?? "")
+        }
         .tint(WalletStyle.copper)
         .foregroundStyle(WalletStyle.ink)
         .preferredColorScheme(.dark)
