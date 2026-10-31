@@ -169,9 +169,12 @@ For every spend:
   the quote id for a melt; lowercase hex, decimal amounts) and signs `SHA256(message)` with `k_e`
   (BIP-340, auxiliary randomness from the TRNG). It never signs a digest the phone supplies.
 - **One reading only.** Prime re-parses the output part of the message it built and refuses it
-  unless there is exactly one way to split it into (canonical decimal amount, 66 hex characters
-  starting `02` or `03`) pairs. An honest phone that hits this, which is rare, moves to the next
-  counter. The two known collisions are kept as negative vectors.
+  unless there is exactly one way to split it into (canonical decimal amount, key) pairs whose keys
+  parse as points, the only lists a mint signs: 66 hex characters starting `02` or `03`, or, since
+  Nutshell hashes `B_` as posted, 130 starting `04`, `06` or `07`. Honest outputs hit this for 0.6%
+  of totals below 1,024 sats and about 10% below 2^20 (mostly a 1,024-sat output that is not last),
+  so the phone runs the same check before asking Prime and moves to the next counters. The two
+  known collisions are kept as negative vectors.
 
 Swap: `Σ inputs − fee = Σ outputs`, or refuse. What leaves is the sum of the leaving outputs plus
 the fee.
@@ -202,6 +205,11 @@ each decision and never written to `fps-state.cbor`.
 - That a proof is unspent. DLEQ proves the mint signed it, nothing more.
 - Mint keys are trust-on-first-use from the paired phone, as federation configs are (D12). A v00
   keyset id commits to neither unit nor fee, so for v00 keysets those rest on that trust too.
+  Neither id version ties a key to its amount, and a melt counts each input at the amount its DLEQ
+  proof's key is pinned for, so an update only adds keysets: a pinned keyset keeps its keys and
+  fee, one the mint stops listing stays pinned, and no key may stand for two amounts. The melt
+  limit therefore holds for proofs of keysets pinned while the phone was honest; a keyset first
+  pinned during a compromise is trusted on first use like any other.
 - Receives are phone-only, so a compromised phone can redirect Cashu that is still arriving (D13).
 - Within one epoch the mint can link the wallet's proofs, which share a lock key. Rotating starts a
   new, unlinkable key and costs one swap per old epoch.
@@ -249,7 +257,7 @@ before either wallet opens.
 | Pay an invoice | approve | Melt quote; split first if the proofs overshoot; inputs from the current epoch plus blanks; SIG_ALL melt; change from the blanks; pending melts are checked again later |
 | Combine | approve | A same-epoch swap into fewer, larger proofs, when a spend would need more inputs than one request should carry (about 16 over QR), and to move proofs out of a keyset before its `final_expiry` |
 | Rotate | approve per old epoch | Next epoch, only if the current one holds proofs; each old epoch's proofs are swapped into the new key |
-| Restore | none (re-add the mint for `P`, `v`) | Per epoch from 0 until the first empty one, and per keyset, inactive ones included: NUT-09 in batches of 100 until three are empty; NUT-07 drops spent proofs |
+| Restore | none (re-add the mint for `P`, `v`) | Per epoch from 0 until four in a row are empty (change may sit three epochs above its inputs), and per keyset, inactive ones included: NUT-09 in batches of 100 until three are empty; NUT-07 drops spent proofs |
 
 Counters advance before a request leaves (write-ahead), so a crash never reuses an output; counters
 of a request that Prime declined or the mint refused are used again, so restores meet no long gaps.
