@@ -114,3 +114,18 @@ with one-shot keys, as decided in D1. Stated explicitly: a compromised phone can
 still on their way in, before they land in Prime-tree notes, and can lie about balances. Everything
 already in Prime-tree notes stays safe. A later "secure receive" mode could make Prime's keys the claim
 keys, at the cost of needing the device to finish every receive.
+
+## D14. Cashu is back, as a second backend beside Fedimint
+
+**Added 2026-10-31, after Phase 4.** With the Fedimint phases working, Cashu returns as a second
+backend, designed in `12_CASHU.md`. Research corrected the old plan: no CDK fork is needed (the `cashu`
+crate exposes the SIG_ALL message), one SIG_ALL spend can use only one lock key (so keys rotate per
+epoch, not per receive), Prime cannot verify where a melt pays (it binds the amount and says so), and
+neither CDK's `cashu` crate nor `cdk-swift` can ship as they are (getrandom 0.4 on Xous; duplicate
+symbols on iOS).
+**Constraint:** the Fedimint path must not change. Cashu gets its own protocol variants, state file,
+key domain, vectors, crates and phone workspace; `wallet/` and the existing CI jobs stay as they are.
+One thing does change, and only in the iOS app built with Cashu: that build compiles the same fedimint
+sources with four patch-level dependency bumps and a few additive features (listed in `12_CASHU.md`).
+`scripts/ios-core.sh` keeps producing today's build, so shipping the Cashu build is a separate choice.
+**Reverse:** drop the Cashu crates and the two protocol variants; nothing Fedimint depends on them.

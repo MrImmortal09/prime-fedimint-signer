@@ -64,6 +64,9 @@ cargo test --release --manifest-path devtools/Cargo.toml
 cargo run --release --manifest-path devtools/Cargo.toml --bin golden   # regenerate vectors
 ```
 
+`nix develop` opens a shell with Rust and the C and C++ toolchain, CMake, libclang and protoc that
+these cross-checks and the phone side need (`flake.nix`). It is not the Foundation SDK shell below.
+
 Device builds need Nix and the Foundation SDK (1.1.0, installed under `~/.foundation/sdk`). They
 use the SDK's pinned nightly and the `armv7a-unknown-xous-elf` target:
 
