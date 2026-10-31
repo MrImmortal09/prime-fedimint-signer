@@ -27,7 +27,7 @@ export component AnimatedQr inherits Rectangle {
         data: root.frames.length > 0 ? root.frames[Math.mod(root.index, root.frames.length)] : "";
     }
     Timer {
-        interval: 250ms;
+        interval: 700ms;
         running: root.frames.length > 1;
         triggered() => {
             root.index = Math.mod(root.index + 1, root.frames.length);

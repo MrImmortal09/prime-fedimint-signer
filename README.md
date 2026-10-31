@@ -108,7 +108,7 @@ xcrun devicectl device install app --device <device UDID> build/Build/Products/D
 Run the app in the KeyOS simulator, then build it for the device without signing:
 
 ```sh
-scripts/sdk-shell.sh bash -c 'cd prime-app && foundation sim'
+scripts/run-simulator.sh
 scripts/app-device-build.sh
 ```
 

@@ -17,7 +17,7 @@ fn model(frames: Vec<String>) -> ModelRc<SharedString> {
 
 /// The frames of an answer for the phone.
 pub fn response_frames(reply: &[u8]) -> ModelRc<SharedString> {
-    model(ur::encode(UR_TYPE_RESPONSE, reply))
+    model(ur::encode_redundant(UR_TYPE_RESPONSE, reply))
 }
 
 /// One static code holding `text`, such as an ecash token.
