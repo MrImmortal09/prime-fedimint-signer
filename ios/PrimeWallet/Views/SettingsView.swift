@@ -22,7 +22,7 @@ struct SettingsView: View {
             }
             Section("Privacy & trust") {
                 Text("Prime holds Fedimint spending keys. Your phone stores wallet activity and view material. The federation is trusted to hold backing funds and redeem ecash.")
-                Text("Incoming payments rely on the phone until funds land in Prime-controlled notes. This does not provide trustless Bitcoin self-custody.")
+                Text("Incoming payments rely on the phone until funds land in Prime-controlled notes.")
             }
             Section {
                 Picker("Connection", selection: $connection) {
