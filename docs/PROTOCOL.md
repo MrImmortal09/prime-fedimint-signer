@@ -120,6 +120,45 @@ contract, never a hash the phone supplies.
 `IntentMismatch`, `InvoiceMismatch`, `AlreadyReleased`, `PolicyLimit`, `UserRejected`, `Busy`,
 `NotFound`, `TooLarge`, `Internal`. Codes are stable; messages are for people and may change.
 
+## Cashu
+
+The bodies of the second backend, in `crates/protocol/src/cashu.rs`. They are reached through
+`Request::Cashu(CashuRequest)` and `Response::Cashu(CashuResponse)`, which the next change appends;
+until then no envelope carries them, and nothing above changes. Prime checks, shows and signs
+Cashu spends as it does Fedimint ones: the phone builds every operation and talks to the mint. The
+design is [`plan/12_CASHU.md`](plan/12_CASHU.md), the key scheme `fps-cashu-v1`
+([`KEY_SCHEME_CASHU.md`](KEY_SCHEME_CASHU.md)), and `crates/cashu-core` implements the checks.
+
+| Request | Approval | Answer |
+|---|---|---|
+| `Info` | never | `Info(CashuInfo)`: the scheme name and the imported mints |
+| `AddMint(CashuMintDescriptor)` | "Cashu: add mint", or "Cashu: update mint keys" for a known mint | `MintAdded(CashuLockMaterial)`, never stored for replay |
+| `Sign(CashuSignRequest)` | "Cashu: send ecash", "Cashu: combine ecash", "Cashu: move to a new key" or "Cashu: pay Lightning invoice" | `Signed(CashuSigned)` |
+
+An `AddMint` for a known mint only adds keysets and updates their `active` flags. A keyset already
+pinned must come with the same keys and fee, one the descriptor no longer lists stays pinned as
+inactive, and no key may be listed under two amounts, across all of them (at most 16): a melt counts
+each input at the amount its DLEQ proof's key is pinned for. Anything else is `InvalidDescriptor`.
+
+| Type | Fields |
+|---|---|
+| `CashuMintDescriptor` | `url` (canonical, as CDK's `MintUrl` renders it), `unit` (`sat`), `keysets` |
+| `CashuKeyset` | `id` (8 bytes for version 00, 33 for version 01), `unit`, `input_fee_ppk`, `final_expiry`, `active`, `keys` |
+| `CashuKey` | `amount`, `pubkey` (33) |
+| `CashuSignRequest` | `mint` (`MintId`, the SHA-256 of the URL), `epoch` (of the inputs' lock key), `inputs`, `outputs`, `kind` |
+| `CashuInput` | `amount`, `keyset`, `secret` (verbatim), `c` (33), `dleq` (required on every input of a melt) |
+| `CashuDleq` | `e`, `s`, `r` (32 each), NUT-12 |
+| `CashuOutput` | `amount` (0 for a melt's blanks), `keyset`, `b` (33), `opening` |
+| `CashuOpening` | `secret`, `r` (32), `hint`: present for change, which Prime re-derives; absent for an output leaving the wallet |
+| `CashuOutputHint` | `epoch`, `keyset`, `counter`: the change output's `fps-cashu-v1` position |
+| `CashuSpendKind` | `Swap`, or `Melt { quote, invoice, amount, fee_reserve }` (sats) |
+| `CashuInfo` | `scheme` (`fps-cashu-v1`), `mints` (`CashuMintSummary`: `mint`, `url`, `unit`, `keysets`) |
+| `CashuLockMaterial` | `mint`, `scheme`, `lock_pubkey` (33), `view_key` (32) |
+| `CashuSigned` | `message_hash` (32), `signature` (64): BIP-340 over the NUT-11 `SIG_ALL` message Prime built, for the first input's witness |
+
+The same strictness applies: unknown fields and variants are errors, and byte strings declared
+with a length must have it. Cashu answers use only the rejection codes above.
+
 ## Transports
 
 `crates/transport` (`fps-transport`) implements both ends of each transport, so the device app and
