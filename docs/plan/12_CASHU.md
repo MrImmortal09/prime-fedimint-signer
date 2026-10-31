@@ -143,13 +143,15 @@ reset flag.
   while a Cashu review waits, the four approval requests (`ImportFederation`, `ExportViewMaterial`,
   `SignTransaction`, `ReleaseNotes`) without a stored answer get the same `Busy` answer `Signer`
   gives.
-- `Request::Cashu` goes to the Cashu service, which answers `Busy` while `Signer::pending()` is set.
-  Cashu answers are stored in the Cashu file's own ring of results.
+- `Request::Cashu` goes to the Cashu service. `Info` is always answered; `AddMint` and `Sign` get
+  `Busy` while either service's review waits (`Signer::pending()` or its own), unless they have a
+  stored answer. Cashu answers are stored in the Cashu file's own ring of results.
 - `GetResult` and `Cancel` look in Fedimint state first, then in the Cashu service.
 - `GetInfo` and `GetStatus` are answered by `Signer`, unchanged.
 - Approve and reject go to whichever service owns the waiting review.
-- `Device::open` returns `Signer::open`'s error unchanged. A Cashu load, decode or version error
-  only disables Cashu.
+- `Device::open` returns `Signer::open`'s error unchanged and does no Cashu work: the Cashu file is
+  read on the first request that needs it. A Cashu load, decode or version error only disables
+  Cashu.
 
 ### What Prime checks before it signs
 
@@ -191,8 +193,13 @@ confirm the mint pays this invoice. The phone keeps that close to the invoice by
 when its proofs overshoot.
 
 Policy: the outflow (leaving outputs plus fee for a swap, `Σ inputs` for a melt, the fee alone for a
-rotation) is checked against the same PIN threshold as Fedimint, read through `Signer::policy()` at
-each decision and never written to `fps-state.cbor`.
+combine or rotation) is checked by fps-policy's own evaluation against the same PIN threshold,
+per-request limit and daily limit as Fedimint, read through `Signer::policy()` at each decision and
+never written to `fps-state.cbor`. The day's count a Cashu spend is checked against is Cashu's own,
+kept in `fps-cashu.cbor` and counted on approval, plus Fedimint's for the same day, read from the
+signer's state; Fedimint's own checks do not see Cashu's count. A melt also passes its invoice
+amount and fee reserve as the policy's routing check, so the routing fee limit that bounds a
+Lightning gateway's fee bounds a mint's fee reserve too.
 
 ### What Prime cannot check
 

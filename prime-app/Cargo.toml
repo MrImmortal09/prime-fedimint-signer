@@ -19,6 +19,7 @@ foundation-themes = { path = ".foundation-sdk/current/lib/keyos/sdk/crates/found
 fs = { path = ".foundation-sdk/current/lib/keyos/api/fs" }
 security = { path = ".foundation-sdk/current/lib/keyos/api/security" }
 
+fps-cashu-signer = { path = "../crates/cashu-signer" }
 fps-protocol = { path = "../crates/protocol" }
 fps-policy = { path = "../crates/policy" }
 fps-signer = { path = "../crates/signer" }

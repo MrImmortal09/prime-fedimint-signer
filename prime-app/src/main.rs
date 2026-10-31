@@ -22,7 +22,8 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 use std::time::Duration;
 
-use fps_signer::{Outcome, Signer};
+use fps_cashu_signer::Device;
+use fps_signer::Outcome;
 use gui_permissions::GuiPermissions;
 use slint_keyos_platform::{
     app_ui2,
@@ -60,7 +61,7 @@ pub struct Screen {
 }
 
 pub struct App {
-    pub signer: Signer<device::AppDataStorage, device::DevicePlatform>,
+    pub signer: Device<device::AppDataStorage, device::DevicePlatform, device::CashuStorage>,
     /// Where the answer to the request waiting for approval goes.
     pub waiting: Option<Channel>,
     /// A result screen is showing.
@@ -377,9 +378,19 @@ fn open(ui: &AppWindow) -> Option<Rc<RefCell<App>>> {
             Ok(()) => log::warn!("simulator: forgot the stored signer state, as the bridge asked"),
             Err(error) => log::error!("simulator: {error}"),
         }
+        match device::CashuStorage.wipe() {
+            Ok(()) => log::warn!("simulator: forgot the stored Cashu state, as the bridge asked"),
+            Err(error) => log::error!("simulator: {error}"),
+        }
     }
 
-    let signer = match Signer::open(*seed, device::AppDataStorage, device::DevicePlatform) {
+    let signer = match Device::open(
+        *seed,
+        device::AppDataStorage,
+        device::DevicePlatform,
+        device::CashuStorage,
+        device::DevicePlatform,
+    ) {
         Ok(signer) => signer,
         Err(error) => {
             log::error!("cannot open the signer: {error}");

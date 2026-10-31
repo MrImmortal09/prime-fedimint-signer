@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/cashu-core",
+    "crates/cashu-signer",
     "crates/policy",
     "crates/protocol",
     "crates/signer",

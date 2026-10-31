@@ -104,3 +104,46 @@ impl Storage for AppDataStorage {
             .map_err(|error| format!("saving the signer state failed: {error:?}"))
     }
 }
+
+/// The Cashu state, in a file of its own beside the signer state: Cashu never writes the signer's
+/// file, and a Cashu file the app cannot read turns Cashu off and leaves Fedimint working.
+const CASHU_FILE: &str = "fps-cashu.cbor";
+
+/// The Cashu service's state as one durable file in `AppData`, written as the signer state is.
+pub struct CashuStorage;
+
+impl CashuStorage {
+    /// Forgets the stored Cashu state, including generations a crash left behind under the names
+    /// `durable_file_write` documents. Tests on the simulator use it to start clean.
+    #[cfg(not(keyos))]
+    pub fn wipe(&self) -> Result<(), String> {
+        let files = crate::FileSystem::default();
+        for name in [
+            CASHU_FILE.to_owned(),
+            format!("{CASHU_FILE}.tmp"),
+            format!("{CASHU_FILE}.new"),
+        ] {
+            match files.remove(name, fs::Location::AppData) {
+                Ok(()) | Err(fs::Error::FileNotFound) => {}
+                Err(error) => return Err(format!("cannot remove the Cashu state: {error:?}")),
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Storage for CashuStorage {
+    fn load(&mut self) -> Result<Option<Vec<u8>>, String> {
+        match crate::FileSystem::default().durable_file_read(CASHU_FILE, fs::Location::AppData) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(fs::Error::FileNotFound) => Ok(None),
+            Err(error) => Err(format!("reading the Cashu state failed: {error:?}")),
+        }
+    }
+
+    fn store(&mut self, bytes: &[u8]) -> Result<(), String> {
+        crate::FileSystem::default()
+            .durable_file_write(CASHU_FILE, fs::Location::AppData, bytes)
+            .map_err(|error| format!("saving the Cashu state failed: {error:?}"))
+    }
+}

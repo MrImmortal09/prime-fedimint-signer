@@ -367,6 +367,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "fps-cashu-signer"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "ciborium",
+ "fps-cashu-core",
+ "fps-policy",
+ "fps-protocol",
+ "fps-signer",
+ "fps-signer-core",
+ "hex",
+ "lightning-invoice",
+ "serde",
+ "serde_json",
+ "zeroize",
+]
+
+[[package]]
 name = "fps-policy"
 version = "0.1.0"
 dependencies = [

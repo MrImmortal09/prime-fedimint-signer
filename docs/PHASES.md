@@ -24,7 +24,7 @@ Fedimint code as it is. Each maps to a row of [`plan/12_CASHU.md`](plan/12_CASHU
 |---|---|---|---|
 | C0 | `cashu/0-plan` | The plan, decision D14, compatibility pins for the Fedimint wire format, state and vectors | Done |
 | C1 | `cashu/1-core` | The Cashu wire types, `crates/cashu-core`, golden vectors and cross-checks from the `cashu` crate | Done |
-| C2 | `cashu/2-prime` | Protocol variants, the Cashu service and `Device`, the Prime app opening it | Planned |
+| C2 | `cashu/2-prime` | Protocol variants, the Cashu service and `Device`, the Prime app opening it | Done |
 | C3 | `cashu/3-wallet` | The phone's `cashu/` workspace and `fps-cashu` with every flow | Planned |
 | C4 | `cashu/4-simulator` | The Cashu wallet against the Prime app in the simulator | Planned |
 | C5 | `cashu/5-ios` | The `fps_cashu` bindings and the Cashu screen in Prime Wallet | Planned |
@@ -553,3 +553,143 @@ devtools-cashu/Cargo.toml --bin golden` regenerates the vectors, which CI checks
   to `validate_mint` and `review_add_mint`, and keeps what `validate_mint` returns.
 - The phone side of the one-reading check, in Cashu 3.
 - Device timings need hardware.
+
+## Cashu 2: Cashu on Prime
+
+The second Cashu pull request, `cashu/2-prime`: the Prime app serves Cashu requests beside the
+Fedimint ones. Fedimint changes by two appended protocol variants and two additive edits in
+`crates/signer`; with Cashu idle, the app answers and stores exactly what it did before.
+
+### Delivered
+
+| Path | What it is |
+|---|---|
+| `crates/protocol` | `Request::Cashu(CashuRequest)` and `Response::Cashu(CashuResponse)`, appended as the last variants. `PROTOCOL_VERSION` stays 1. Spec: `PROTOCOL.md` |
+| `crates/signer` | `ApprovalKind::Cashu`, and the `dispatch` arm that answers `Request::Cashu` with `Rejected(Unsupported)`: a signer on its own has no Cashu |
+| `crates/cashu-signer` (`fps-cashu-signer`) | The Cashu service, with its own state in `fps-cashu.cbor`, and `Device`, which the app opens in place of `Signer` |
+| `prime-app` | Opens `Device` (the import, the field type and the open call in `main.rs`); `CashuStorage`, a durable `AppData` file `fps-cashu.cbor`; the simulator reset removes it, and its `.tmp` and `.new`, in the same block as the signer state |
+| `.github/workflows/ci.yml` | Job `curve-features`: fails if `fps-cashu-signer` switches on a feature of `bitcoin`, `secp256k1` or their sub-crates that `fps-signer` alone does not, or brings in `getrandom` |
+
+How it works:
+
+- **`Device` derefs to `Signer`.** Only `handle`, `pending`, `approve` and `reject` are its own, so
+  every other call the app makes (`federations`, `forget_federation`, `policy`, `set_policy`,
+  `state`) reaches the signer unchanged, and `view.rs` and the Slint pages are untouched.
+- **Routing.** `Request::Cashu` goes to the Cashu service, everything else to `Signer::handle`,
+  except that while a Cashu review waits the four requests that need approval get the signer's
+  own answer for a waiting review, byte for byte: their stored answer, or `Busy`. `GetResult` and
+  `Cancel` go to the signer first and to the Cashu service only when the signer has nothing.
+- **The Cashu service.** `Info` is always answered. `AddMint` validates the descriptor against
+  what is pinned for that mint, shows "Cashu: add mint" or "Cashu: update mint keys", and on
+  approval pins what `validate_mint` returned and answers the lock material, never stored. `Sign`
+  analyses the spend against the pinned mint, applies the policy, shows the spend's review, and on
+  approval signs with fresh randomness and stores the answer and the outflow before it leaves.
+- **State.** `fps-cashu.cbor` holds a version of its own, every pinned mint as one descriptor of
+  everything pinned for it, a ring of the last 32 final answers, and Cashu's own count of the day's
+  outflow. `Device::open` opens the signer only: the file is read on the first request that needs
+  it (a Cashu request, or a `GetResult` the signer has nothing for), so opening the app costs
+  Fedimint nothing whatever Cashu holds. Decoding is strict, and every stored mint is validated
+  again when the file is read and must come out as stored. A file that cannot be read, decoded or
+  validated, or has another version, turns Cashu off until the app opens again and is never
+  rewritten; `Info` then lists no mints, `AddMint` and `Sign` get `Rejected(Internal)` saying why,
+  and Fedimint works as before.
+- **Limits.** At most 16 mints, and 2,048 keys over all of them (`MAX_PINNED_KEYS`, sixteen mints
+  of 128 keys); an `AddMint` past either, an update included, gets `TooLarge`, and a file past
+  either does not load. The file is then at most 137,229 bytes, where `fps-cashu-core`'s per-mint
+  limits (16 keysets of 64 keys) alone allowed about 950 KB, rewritten whole at every decision.
+- **Policy.** Read through `Signer::policy()` at each decision and evaluated by fps-policy's own
+  code: the same PIN threshold, per-request limit and daily limit. The daily count is Cashu's own
+  plus Fedimint's for the same day, read from the signer's state, so a Cashu spend cannot take the
+  two together over the limit; Cashu counts a spend only once it is approved. A melt passes its
+  invoice amount and fee reserve as the policy's routing check, so the routing fee limit bounds a
+  mint's fee reserve as it bounds a gateway's fee.
+- **Randomness.** The app passes a second `DevicePlatform` to `Device::open`, for the Cashu
+  service, so `device.rs` needs no change to the platform and each service keeps its own.
+
+This closes the note under Cashu 1: the service passes the mint it has pinned to `validate_mint`
+and `review_add_mint`, and keeps what `validate_mint` returns.
+
+### How it is verified
+
+| Check | Result |
+|---|---|
+| Service, through `Device` | 22 tests: info; adding a mint, asked every time; an update that only adds and keeps an unlisted keyset pinned as inactive, from which a proof is still spent; four refused updates (a changed fee under a version 00 id, a key relabelled to another amount, unit `usd`, a URL not in canonical form); a send and a melt signed after approval, checked with BIP-340 against `P_e` over the message Prime built; fresh randomness for each signature; rejection, replay and `GetResult`; the ring of 32 answers, which drops the oldest and reads back full; one Cashu review at a time, while `Info` and stored answers still come back; an unknown mint; the PIN threshold; per-request and daily limits, counted on approval only and reset the next day; the daily limit over Fedimint's frozen count of 552,067,136 msat plus Cashu's; a fee reserve over the routing fee limit; cancel; restart; failed writes keeping an approval or a cancel waiting and ending a rejection; the limits of 16 mints and 2,048 keys, an update counted once; the file read on first use, never when the device opens; ten kinds of unreadable Cashu file turning Cashu off without being rewritten while a federation is imported; `Device::open` failing exactly as `Signer::open` |
+| Differential | The Fedimint golden scenario of `compat_state.rs`, then status, every stored answer, replays, nonces, malformed, foreign-version and oversized messages, `Busy` for each of the four requests and nonces, results, cancels and malformed bytes answered while a review waits, a PIN, a release without review, a failed write, and forgetting and importing again: 96 events (answers, approvals asked for, results of approving, rejecting and changing the policy) and 19 writes of `fps-state.cbor`, identical through a bare `Signer`, a `Device` without a Cashu file and a `Device` with a populated one, whose file is never written. The populated file's answers sit under ids the Fedimint traffic uses too, so a Fedimint answer taken from Cashu's ring, or a `GetResult` that looked in Cashu first, would show. The scenario part still writes the frozen `fps-state-v1.cbor` |
+| Cross-backend | 5 tests: a waiting Cashu review gets `ImportFederation`, `ExportViewMaterial`, `SignTransaction` and `ReleaseNotes` (prepared notes included) the bytes a bare signer gives with its own review waiting, and stored answers, `GetInfo`, `GetStatus`, nonces and `GetResult` the bytes an idle one gives; a waiting Fedimint review makes `AddMint` and `Sign` `Busy` with the signer's own bytes while `Info` and stored Cashu answers still come back; `GetResult` and `Cancel` find either backend's requests, and give the signer's bytes when neither has one; an id both backends hold replays each backend's own answer, and `GetResult` and `Cancel` find Fedimint's first; approving and rejecting reach the service whose review waits |
+| Compatibility | 3 tests: all 53 v1 messages of `compat/v1-messages.json` answered identically by a `Device` and a bare `Signer`, fresh and populated; an old Prime's decoder, a copy of the v1 `Request` enum, refuses every Cashu request with `Malformed` under its id, an answer the phone reads; a bare `Signer` answers `Unsupported` and stores nothing |
+| Isolation | 3 tests: Cashu traffic over the frozen `fps-state.cbor` never writes it; Fedimint traffic over a populated `fps-cashu.cbor` never writes it; a device over two empty files knows neither backend. The simulator reset that empties them is the app's, checked on the simulator only (below) |
+| Protocol | 5 tests: every Cashu body round trips in an envelope, the variants are tagged by name, two envelopes are pinned byte for byte, decoding stays strict, and openings and the view key stay out of Debug output |
+| Mutations | 14 deliberate faults in `Device` and the service, each caught by at least one test and then reverted: Fedimint answered from Cashu's ring, `GetResult` or `Cancel` looking in Cashu first, nonces `Busy` while a Fedimint review waits, the ring never dropping or dropping the newest, the answers limit skipped on load, stored answers withheld while a Cashu review waits, constant signing randomness, a failed reject keeping its review, the file read at open, either key limit dropped, and an update counted twice |
+| Fedimint untouched | `cargo test --workspace` passes 266 tests on main, the 225 from before among them; the pins of Cashu 0 (`compat_v1.rs`, `compat_state.rs`, `pins.rs`) hold; the root and app `Cargo.lock` only gain entries; `wallet/` resolves `--locked` with its lockfile unchanged |
+| `curve-features` | Passes; adding bitcoin's `secp-lowmemory` to `fps-cashu-signer` makes it fail, naming the three features it adds, and so does a `cargo tree` that fails: the step sets `pipefail` and checks both listings are real |
+| Device build | `scripts/device-build.sh -p fps-cashu-signer --release` builds without warnings, and `scripts/app-device-build.sh` links the app: stripped, 5,212,936 bytes, 302,880 more than before (4,910,056), with the text segment 300,020 bytes larger |
+| Simulator | `scripts/sim-e2e.sh`: 19 checks and 4 after a restart. `scripts/sim-wallet-e2e.sh`: 13 screens over the bridge (40.1 s) and 13 over the network link (27.6 s). Both resets log that the Cashu state was removed too |
+| Cashu in the simulator | A scratch driver, not committed (Cashu 4 adds the script): `Info`, then "Cashu: add mint" and "Cashu: send ecash" approved on the simulator's screen, the lock material and the signature checked; after a restart the mint and the stored answer are still there; after a reset both are gone. Rerun with the lazy read: the first two parts pass again; the reset part was cut short by another simulator started beside it, and passed in the earlier run |
+
+Host timings, Apple M4, release build:
+
+| Operation | Host |
+|---|---|
+| Open `Device` over the frozen `fps-state.cbor`, with any Cashu file | 6.2 ms, as the bare `Signer` (6.1 ms): the Cashu file is not read |
+| The first Cashu request after that, which reads and checks a file of 1 mint (3 keysets, 128 keys) | 0.36 ms more |
+| … of 16 such mints, 2,048 keys | 5.6 ms more |
+| … of the largest file the limits allow, 16 mints of 16 keysets of 8 keys | 6.0 ms more |
+| A send, 3 inputs and 2 outputs: handle, approve, sign and store | 0.41 ms |
+| A melt, 3 inputs and 2 blanks, the invoice parsed twice (analysis, then the routing check) | 0.63 ms |
+| The extra decode `Device` makes before `Signer::handle`, for the largest golden request (1,522 bytes) | 1.6 µs |
+
+`fps-cashu.cbor` is 13,953 bytes with one such mint and 32 stored answers, 124,045 bytes with 16
+mints, and at most 137,229 bytes. With the 50 to 150 times factor from Phase 0, opening the app
+costs no more than before whatever Cashu holds, and the first Cashu request after it takes 0.3 to
+0.9 s longer with the most keys, and well under 0.1 s with one mint.
+
+`cargo test --release -p fps-cashu-signer --test service -- --ignored --nocapture` measures them.
+
+### Findings
+
+- **The routing fee limit refuses large melts at a CDK mint with default settings.** CDK's mintd
+  reserves 2% of the invoice for fees, at least 2 sats; the default limit is 100 sats plus 1.5%,
+  so with both at their defaults a melt above 20,000 sats is refused with `PolicyLimit`. Nutshell
+  reserves 1%, which fits. The limit is the user's routing fee setting, which the settings screen
+  cannot edit yet.
+- **`GetResult` answers with the stored envelope, addressed to the request it is about.** The
+  simulator bridge files an answer under the id inside it, so a phone that fetches a result over
+  the bridge must look for the original request's id, for Cashu as for Fedimint. Found by the
+  scratch simulator driver, which first waited under the `GetResult`'s own id.
+- **Replays are per backend.** A Cashu request is replayed only from Cashu's answers and a
+  Fedimint request only from Fedimint's, so a populated Cashu file cannot change a Fedimint answer.
+  Only `GetResult` and `Cancel` look in both, Fedimint first. A phone reusing an id across backends
+  gets each backend's own answer. The first tests kept the two sets of ids apart and could not see
+  the lookup order; the differential and a cross-backend test now share ids.
+- **A failed write ends a Cashu rejection, as it ends a Fedimint one.** The app stops waiting for a
+  review once the user rejects it, whatever the result, so a Cashu review kept after a failed
+  reject (as first written) could still be approved, and its answer would have gone to a QR screen
+  rather than the link the phone waits on. A failed approval keeps the review in both services. A
+  failed cancel keeps a Cashu review waiting and answers `Internal`, where the signer drops its
+  own; the app keeps waiting after a cancel, so the user can still decide.
+- **Reading the Cashu file at open delayed Fedimint, and the file had no real bound.** The
+  per-mint limits allowed 16 mints of 16 keysets of 64 keys: a file of about 950 KB, rewritten at
+  every Cashu decision, and 45 to 53 ms on the host to check, so 2 to 8 s before "signer open" on
+  every start. The file is now read on first use and holds at most 2,048 keys.
+- **The app grows by 296 KiB,** about three times the 95 to 120 KiB the research estimated for a
+  bare verifier: the service, the analysis messages and reviews, and the CBOR code for the Cashu
+  types.
+- **`crates/signer` logs nothing, and neither does the Cashu service.** The app's existing
+  `review on screen: <title>` line shows the Cashu titles; the only new log line is the reset's.
+
+### Still open
+
+- Fedimint's own checks do not see Cashu's outflow: Cashu holds the combined day under the daily
+  limit, but a Fedimint spend after Cashu spends can take the combined day over it. Today the
+  daily limit cannot be set from the settings screen, and without a clock the device's count never
+  resets.
+- No way to forget a mint, on screen or by request, so the limits of 16 mints and 2,048 keys are
+  for good. The home screen shows no mints, and a Cashu file that cannot be read shows only in
+  Cashu answers (`Device::cashu_off`, which reads the file, is there for the app to show it).
+- The routing fee limit and CDK's default fee reserve (above).
+- The service could keep the highest counter it signed per keyset and epoch (Cashu 1).
+- No committed check runs the simulator reset that removes `fps-cashu.cbor`: no workspace test
+  reaches `CashuStorage::wipe`, and the Fedimint simulator scripts send no Cashu. Cashu 4's
+  `sim-cashu-e2e.sh` should commit the scratch driver's check: add a mint, reset, and `Info` lists
+  none.
+- The phone (Cashu 3), the Cashu simulator script (Cashu 4), and device timings on hardware.
