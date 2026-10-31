@@ -65,6 +65,7 @@ struct ScannerView: UIViewRepresentable {
                   let input = try? AVCaptureDeviceInput(device: camera)
             else { return }
             session.beginConfiguration()
+            if session.canSetSessionPreset(.hd1280x720) { session.sessionPreset = .hd1280x720 }
             defer { session.commitConfiguration() }
             guard session.canAddInput(input) else { return }
             session.addInput(input)
@@ -73,10 +74,16 @@ struct ScannerView: UIViewRepresentable {
             session.addOutput(output)
             output.setMetadataObjectsDelegate(self, queue: queue)
             output.metadataObjectTypes = [.qr]
-            // A screen is held close to the camera.
+            // Screens may be farther away than paper codes: allow the full focus range.
             if (try? camera.lockForConfiguration()) != nil {
                 if camera.isAutoFocusRangeRestrictionSupported {
-                    camera.autoFocusRangeRestriction = .near
+                    camera.autoFocusRangeRestriction = .none
+                }
+                if camera.isFocusModeSupported(.continuousAutoFocus) {
+                    camera.focusMode = .continuousAutoFocus
+                }
+                if camera.isExposureModeSupported(.continuousAutoExposure) {
+                    camera.exposureMode = .continuousAutoExposure
                 }
                 camera.unlockForConfiguration()
             }
