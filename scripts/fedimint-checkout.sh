@@ -17,9 +17,24 @@ dir="$root/third_party/fedimint"
 patches="$root/patches/fedimint"
 stamp="$dir/.fps-patches"
 
+has_patches() {
+  for f in "$patches"/*.patch; do
+    [ -e "$f" ]
+    return
+  done
+}
+
+sha256_hex() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | cut -d' ' -f1
+  else
+    shasum -a 256 | cut -d' ' -f1
+  fi
+}
+
 series_hash() {
-  if compgen -G "$patches/*.patch" >/dev/null; then
-    cat "$patches"/*.patch | shasum -a 256 | cut -d' ' -f1
+  if has_patches; then
+    cat "$patches"/*.patch | sha256_hex
   else
     echo none
   fi
@@ -49,7 +64,7 @@ fi
 
 git -C "$dir" -c advice.detachedHead=false checkout --quiet --force "$tag"
 git -C "$dir" checkout --quiet -B fps-signer
-if compgen -G "$patches/*.patch" >/dev/null; then
+if has_patches; then
   git -C "$dir" -c user.name=fps -c user.email=fps@localhost am --quiet --keep-cr "$patches"/*.patch
 fi
 series_hash >"$stamp"
