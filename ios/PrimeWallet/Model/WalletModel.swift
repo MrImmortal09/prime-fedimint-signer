@@ -15,6 +15,7 @@ final class WalletModel: ObservableObject {
     /// The last failure, until the person dismisses it.
     @Published var error: String?
     @Published private(set) var openError: String?
+    private var refreshing = false
 
     /// Opens the wallet kept in the app's Application Support folder.
     func open() async {
@@ -44,14 +45,18 @@ final class WalletModel: ObservableObject {
         wallet?.setSimulatorAddress(address: simulator && !address.isEmpty ? address : nil)
     }
 
-    func refresh() async {
-        guard let wallet, federation != nil else { return }
+    func refresh(reportErrors: Bool = true) async {
+        guard let wallet, federation != nil, !refreshing else { return }
+        refreshing = true
+        defer { refreshing = false }
         do {
             balanceMsat = try await wallet.balanceMsat()
             activity = try await wallet.activity()
             pendingSends = try await wallet.pendingSends()
         } catch {
-            self.error = error.shown
+            // Automatic polling must not repeatedly interrupt the person during
+            // a transient network outage. Explicit refreshes still show errors.
+            if reportErrors { self.error = error.shown }
         }
     }
 

@@ -3,6 +3,7 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject private var model: WalletModel
     @EnvironmentObject private var bridge: PrimeBridge
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
@@ -39,7 +40,17 @@ struct RootView: View {
         .tint(WalletStyle.copper)
         .foregroundStyle(WalletStyle.ink)
         .preferredColorScheme(.dark)
-        .task { await model.open() }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            await model.open()
+            // Deposits settle in the Rust client's background state machines.
+            // Keep the visible balance current and stop polling off screen.
+            while !Task.isCancelled {
+                await model.refresh(reportErrors: false)
+                do { try await Task.sleep(nanoseconds: 5_000_000_000) }
+                catch { return }
+            }
+        }
     }
 
     @ViewBuilder private var content: some View {
