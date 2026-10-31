@@ -81,3 +81,20 @@ jobs:
         run: scripts/fedimint-checkout.sh
       - name: The wallet workspace resolves as locked
         run: cargo metadata --locked --format-version 1 --manifest-path wallet/Cargo.toml > /dev/null
+
+  # The Cashu signer core against the real `cashu` 0.18.3 crate, from its own host workspace, so
+  # neither the Fedimint generator's lockfile nor the device graph sees CDK.
+  cashu-vectors:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: devtools-cashu
+      - name: Golden vectors match what the cashu crate produces
+        run: |
+          cargo run --release --locked --manifest-path devtools-cashu/Cargo.toml --bin golden
+          git diff --exit-code crates/cashu-core/tests/vectors
+      - name: Device code cross-checked against the cashu crate
+        run: cargo test --release --locked --manifest-path devtools-cashu/Cargo.toml
