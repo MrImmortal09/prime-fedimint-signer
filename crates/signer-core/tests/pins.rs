@@ -5,6 +5,11 @@
 //! `vectors/key-scheme-fps-v1.json` freezes the `fps-v1` keys the paired phone derives too. Both are
 //! pinned by their SHA-256. A diff in this file means the Fedimint vectors changed, so the signer
 //! core is now checked against something else. Cashu keeps its own vectors elsewhere.
+//!
+//! After a deliberate regeneration (`cargo run --release --manifest-path devtools/Cargo.toml --bin
+//! golden`), take the new hashes from `sha256sum crates/signer-core/tests/vectors/*.json` and
+//! rewrite the state fixture (`write_fixture` in `crates/signer/tests/compat_state.rs`) in the same
+//! commit.
 
 use bitcoin::hashes::{sha256, Hash};
 

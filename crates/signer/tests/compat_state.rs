@@ -7,6 +7,11 @@
 //! for the same scenario. A diff in this file or in its fixture means the Fedimint state format or
 //! the signer's behaviour changed, so an installed Prime's state would no longer open, or would open
 //! differently. Fix the code, never the fixture.
+//!
+//! The one reason to rewrite the fixture is a deliberate regeneration of the golden vectors it is
+//! built from (the `fedimint` CI job keeps them equal to what fedimint produces). Then
+//! `write_fixture` below rewrites it, and the hashes in `crates/signer-core/tests/pins.rs` move in
+//! the same commit.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -599,4 +604,14 @@ fn a_fresh_state_is_unchanged() {
     .unwrap();
     assert_eq!(signer.policy(), &PolicyConfig::default());
     assert_eq!(hex::encode(signer.state().encode()), FRESH_STATE);
+}
+
+/// Rewrites the fixture from the scenario:
+/// `cargo test -p fps-signer --test compat_state -- --ignored write_fixture`.
+/// Only after a deliberate change to the golden vectors, never to make a signer change pass.
+#[test]
+#[ignore]
+fn write_fixture() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/compat/fps-state-v1.cbor");
+    std::fs::write(path, run_scenario(&Golden::load())).unwrap();
 }
